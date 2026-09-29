@@ -53,6 +53,15 @@ own reading.
 > are **designed** and on the roadmap. The full diagram is
 > [`docs/architecture.svg`](docs/architecture.svg).
 
+### Screenshots
+
+![MRIP UI — sign-in, dashboard, documents and facts](docs/images/ui-collage.png)
+
+Sign-in (on-premise, no self-registration) · the dashboard with headline counts and
+production by subsidiary · the document corpus, content-addressed by SHA-256 · and the
+facts view, where every figure opens an evidence panel showing the document, page, table
+and cell it came from and its confidence decomposed into OCR / parse / answer.
+
 **Documentation for reviewers**
 
 | Document | What it covers |
