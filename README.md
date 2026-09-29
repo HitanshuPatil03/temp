@@ -45,6 +45,26 @@ own reading.
 
 ---
 
+## Architecture at a glance
+
+![MRIP architecture — evidence-first, from browser to fact store](docs/architecture.svg)
+
+> Solid boxes are **built and tested** (388 tests against a real PostgreSQL); dashed boxes
+> are **designed** and on the roadmap. The full diagram is
+> [`docs/architecture.svg`](docs/architecture.svg).
+
+**Documentation for reviewers**
+
+| Document | What it covers |
+|---|---|
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | The full design, section by section (§7 figure-path isolation, §11–13 the three deliverables, §14 the metrics) |
+| [`docs/ROADMAP.md`](docs/ROADMAP.md) | Phases and the gate each one must pass |
+| [`docs/EVALUATION.md`](docs/EVALUATION.md) | A ten-minute walkthrough to a populated system, with demo accounts and what to click |
+| [`docs/DATASETS.md`](docs/DATASETS.md) | The eleven publishers, their official source links, and how provenance is recorded and verified |
+| [`docs/SIH26023-MRIP-Research-Report.pdf`](docs/SIH26023-MRIP-Research-Report.pdf) | The deep-research and feasibility report behind the design |
+
+---
+
 ## What this is built for
 
 An **on-premise, multi-user, audited deployment inside the CMPDI/CIL network**, holding
@@ -204,6 +224,9 @@ instant and the resumed run produces identical rows. The queue is
 *enqueuing a job is part of the transaction that makes it necessary.*
 
 ## Real documents
+
+> Publisher-by-publisher sources, official links and the provenance rules are in
+> [`docs/DATASETS.md`](docs/DATASETS.md).
 
 The extractor is developed against documents Coal India actually publishes, not against
 tables we invented. `mrip-admin fetch-corpus` crawls the eleven publishers below — one
