@@ -1,0 +1,85 @@
+@import "tailwindcss";
+
+/*
+ * MRIP design tokens — light theme only.
+ *
+ * The chart colours are not chosen by eye. They are the validated categorical
+ * slots, checked with a CVD simulator against this file's own surface: worst
+ * adjacent pair ΔE 9.2 (deutan) against an ≥8 target, worst normal-vision pair
+ * ΔE 24.0 against a ≥15 floor. Assign them in slot order and never cycle past
+ * slot 8 — a generated ninth hue is indistinguishable from an existing one
+ * under colour-vision deficiency.
+ *
+ * `--color-aqua` sits below 3:1 against the surface, so anything filled with it
+ * carries a visible label rather than relying on the fill to be read.
+ *
+ * Status colours are reserved for state (good / warning / serious / critical)
+ * and never reused as a series colour. They always ship with an icon or a word,
+ * because "the orange one" is not information a colourblind reviewer receives.
+ */
+
+@theme {
+  /* surfaces & ink */
+  --color-plane: #f9f9f7;
+  --color-surface: #fcfcfb;
+  --color-ink: #0b0b0b;
+  --color-ink-2: #52514e;
+  --color-ink-3: #898781;
+  --color-hairline: #e1e0d9;
+  --color-rule: #c3c2b7;
+
+  /* categorical series, in fixed assignment order */
+  --color-series-1: #2a78d6;
+  --color-series-2: #eb6834;
+  --color-series-3: #1baf7a;
+  --color-series-4: #eda100;
+  --color-series-5: #e87ba4;
+  --color-series-6: #008300;
+  --color-series-7: #4a3aa7;
+  --color-series-8: #e34948;
+
+  /* sequential blue ramp, light → dark (magnitude only) */
+  --color-blue-100: #cde2fb;
+  --color-blue-200: #9ec5f4;
+  --color-blue-300: #6da7ec;
+  --color-blue-450: #2a78d6;
+  --color-blue-550: #1c5cab;
+  --color-blue-700: #0d366b;
+
+  /* status — reserved, never a series */
+  --color-good: #0ca30c;
+  --color-warning: #fab219;
+  --color-serious: #ec835a;
+  --color-critical: #d03b3b;
+  --color-success-ink: #006300;
+
+  --font-sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
+}
+
+html {
+  color-scheme: light;
+}
+
+body {
+  background-color: var(--color-plane);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}
+
+/* Recharts draws its own axis and grid; pull both back to hairline weight so
+   the data reads louder than the chrome. */
+.recharts-cartesian-axis-line,
+.recharts-cartesian-axis-tick-line {
+  stroke: var(--color-rule);
+}
+
+.recharts-cartesian-grid line {
+  stroke: var(--color-hairline);
+}
+
+/* Numbers that stack vertically get equal-width digits; standalone figures keep
+   proportional ones, where tabular spacing just reads loose. */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
