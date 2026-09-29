@@ -1,0 +1,20 @@
+# MRIP API — optional extras, installed per phase.
+# Kept separate so the deterministic core stays installable in seconds and the
+# demo never depends on a multi-gigabyte download.
+#
+# Install:  python -m pip install -r requirements-ml.txt
+
+# --- Phase 3: semantic retrieval (CPU inference is fine) ---
+sentence-transformers>=3.3       # BGE embeddings
+scikit-learn>=1.6
+
+# --- Phase 5: topic intelligence ---
+keybert>=0.9                     # keyphrase extraction
+
+# --- Phase 3.5 (optional): local LLM ---
+# The LLM is reached over Ollama's HTTP API, so no Python runtime is needed here.
+# Install Ollama separately, then:  ollama pull qwen2.5:3b-instruct
+#
+# NOTE on this machine: the GPU is an RTX 2050 (4 GB VRAM), below the 6 GB the
+# research report assumed. Keep to <=3B quantized models, and treat the LLM as an
+# enhancement — the exact-figure path must work with it switched off entirely.

@@ -1,0 +1,102 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Node
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+next-env.d.ts
+
+# ---------------------------------------------------------------- MRIP data
+# The corpus and everything derived from it are never committed. Source
+# documents hold unpublished production figures; the blob store *is* the
+# evidence, so it is backed up with the database rather than versioned here.
+data/blobs/
+data/staging/
+data/parquet/
+# Anything dropped in data/ while testing. The corpus manifest IS tracked and
+# the documents it points at are not: the manifest records, for every file the
+# harvester fetched, its publisher, its source URL, its SHA-256 and when it was
+# retrieved. That is the provenance record — it is how someone checks that the
+# figures in this platform came off documents Coal India actually published,
+# and it is ~2 MB of text rather than ~24 GB of PDFs.
+data/*.pdf
+data/*.xlsx
+data/*.docx
+# The harvester's own run logs — one line per fetch attempt, useful while a
+# download is in flight and meaningless afterwards. The manifest is the record
+# that outlives the run.
+data/*.log
+data/corpus/*
+!data/corpus/.gitkeep
+!data/corpus/manifest.json
+data/uploads/*
+!data/uploads/.gitkeep
+data/warehouse/*
+!data/warehouse/.gitkeep
+*.duckdb
+*.duckdb.wal
+*.parquet
+
+# Generated report deliverables
+data/reports/*
+!data/reports/.gitkeep
+
+# The gold corpus ground truth IS committed (it is the accuracy gate), but not
+# the documents it scores against.
+data/gold/documents/
+
+# Local model weights — shipped as an offline bundle with checksums, not in git
+models/
+
+# ---------------------------------------------------------------------- env
+.env
+.env.local
+.env.*.local
+
+# CI artifacts
+licences-python.md
+
+# Working research and scratch material kept beside the repo rather than in it:
+# these are inputs to the design, not source, and some carry document metadata
+# from whatever produced them.
+*.jpeg
+*.jpg
+*.png
+!apps/web/public/**
+!docs/images/**
+SIH*_Report*.pdf
+scratch/
+notes/
+
+# Throwaway diagnostics. Working out why one PDF read the way it did means a
+# short script that dumps a grid and a pickle of whatever it was holding; both
+# are written to be deleted the same hour. They are ignored by name so that
+# forgetting to delete one costs nothing, and because a stray probe script
+# reads like project source to anyone opening the repo later.
+*.pkl
+*.log
+probe*.py
+dumpgrid.py
+diagnose.py
+runextract.py
+
+# OS
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# Editor
+.idea/
+.vscode/*
+!.vscode/extensions.json

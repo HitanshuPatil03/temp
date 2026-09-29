@@ -1,0 +1,32 @@
+# Normalise line endings in the repository to LF.
+#
+# Without this, a checkout on Windows gets CRLF everywhere — and the WSL setup
+# scripts then fail with `bad interpreter: /usr/bin/env bash^M`, which is a
+# confusing first five minutes for anyone cloning this on a Windows machine to
+# evaluate it.
+* text=auto eol=lf
+
+# Shell scripts are run by bash inside WSL or a Linux container. LF always.
+*.sh text eol=lf
+Dockerfile text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# Windows-only files keep CRLF, because cmd.exe needs it.
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary, never diffed or converted.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.pdf binary
+*.xlsx binary
+*.docx binary
+*.pptx binary
+*.ico binary
+
+# Generated and huge: collapse it in diffs and reviews so a pull request stays
+# readable, while still being tracked.
+package-lock.json linguist-generated=true -diff

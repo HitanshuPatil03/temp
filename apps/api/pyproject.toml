@@ -1,0 +1,177 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mrip"
+version = "0.2.0"
+description = "Mining Reporting Intelligence Platform — evidence-first reporting for the Indian coal sector (SIH26023)"
+# No `readme` key: setuptools refuses a path outside the project directory, and
+# the project README lives at the repository root rather than duplicated here.
+requires-python = ">=3.12"
+license = "MIT"
+
+# Runtime dependencies for the deterministic core. Everything here installs in
+# seconds on CPU and requires no network access at runtime — see ARCHITECTURE §3.
+dependencies = [
+  # --- web layer ---
+  "fastapi>=0.118",
+  "uvicorn[standard]>=0.38",
+  "pydantic>=2.11",
+  "pydantic-settings>=2.8",
+  "python-multipart>=0.0.20",
+
+  # --- storage ---
+  # SQLAlchemy Core (not the ORM): the queries here are deliberately explicit,
+  # and an identity map buys nothing for an append-only evidence store.
+  "SQLAlchemy>=2.0.36",
+  "alembic>=1.14",
+  "psycopg[binary,pool]>=3.2",
+  "pgvector>=0.3.6",
+
+  # --- identity ---
+  "argon2-cffi>=23.1",
+  "PyJWT>=2.10",
+
+  # --- observability ---
+  "structlog>=24.4",
+
+  # --- document processing ---
+  "pymupdf>=1.26",
+  "pdfplumber>=0.11",
+  "pandas>=2.2",
+  "openpyxl>=3.1",
+  "pillow>=11.0",
+
+  # --- report deliverables ---
+  "python-docx>=1.1",
+  "python-pptx>=1.0",
+]
+
+[project.optional-dependencies]
+# OCR, kept out of the core because onnxruntime plus the PP-OCR model files are a
+# few hundred megabytes and are not needed until digitization (roadmap Phase 2.3).
+#
+# NOTE: the package is `rapidocr`, not `rapidocr-onnxruntime`. The latter was
+# renamed upstream at v2.0 and its last release caps Python at <3.13, so it cannot
+# install on this toolchain at all — the old pin was silently unsatisfiable.
+ocr = [
+  "rapidocr>=3.4",
+  "onnxruntime>=1.20",
+]
+# Kept out of the core so the deterministic pipeline stays installable in seconds
+# and never depends on a multi-gigabyte download.
+ml = [
+  "sentence-transformers>=3.3",
+  "scikit-learn>=1.6",
+  "keybert>=0.9",
+]
+
+# DuckDB is no longer the system of record (ARCHITECTURE §4). It survives as an
+# optional analyst sidecar over Parquet snapshots.
+analytics = [
+  "duckdb>=1.4",
+  "pyarrow>=18.0",
+]
+
+dev = [
+  "pytest>=8.3",
+  "pytest-cov>=6.0",
+  "httpx>=0.28",
+  "ruff>=0.8",
+  "mypy>=1.14",
+  "types-python-dateutil",
+]
+
+[project.scripts]
+mrip-worker = "mrip.jobs.worker:main"
+mrip-scheduler = "mrip.jobs.scheduler:main"
+mrip-admin = "mrip.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["mrip*"]
+
+# ---------------------------------------------------------------------- ruff
+
+[tool.ruff]
+line-length = 90
+target-version = "py312"
+src = ["."]
+
+[tool.ruff.lint]
+select = [
+  "E", "W",      # pycodestyle
+  "F",           # pyflakes
+  "I",           # import sorting
+  "N",           # pep8-naming
+  "UP",          # pyupgrade
+  "B",           # bugbear
+  "A",           # builtin shadowing
+  "C4",          # comprehensions
+  "DTZ",         # naive datetimes — a fiscal-year system cannot afford these
+  "T20",         # no stray print()
+  "SIM",         # simplify
+  "PTH",         # pathlib over os.path
+  "RUF",
+  "S",           # bandit security checks
+]
+ignore = [
+  "S101",        # assert is how pytest works
+  # This codebase is full of deliberate Indian typography: ₹, ×, and the en-dash
+  # in period ranges like "Apr–Sep 2024" as printed in CIL reports. The period
+  # normalizer must match the character the source document actually uses, so
+  # "did you mean a hyphen?" is exactly wrong here.
+  "RUF001", "RUF002", "RUF003",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# `Depends(...)` / `Query(...)` in a parameter default is FastAPI's dependency
+# declaration, not a mutable-default bug.
+"mrip/api/*" = ["B008"]
+# The operator CLI writes to the terminal; that is its interface, not a stray
+# debug statement. Logging would send an interactive command's output to a log
+# collector instead of to the person who typed it.
+"mrip/cli.py" = ["T201"]
+# Alembic migrations are generated and intentionally terse.
+"migrations/versions/*" = ["E501", "N999"]
+"tests/*" = ["S105", "S106"]  # hardcoded test credentials are the point
+
+# ---------------------------------------------------------------------- mypy
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+disallow_any_explicit = false
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+# Third-party packages without shipped stubs. Listed explicitly rather than with a
+# blanket ignore, so a package that *gains* stubs starts being checked.
+module = [
+  "fitz.*",
+  "pymupdf.*",
+  "pdfplumber.*",
+  "openpyxl.*",
+  "rapidocr.*",
+  "rapidocr_onnxruntime.*",
+  "docx.*",
+  "pptx.*",
+  "pgvector.*",
+]
+ignore_missing_imports = true
+
+# -------------------------------------------------------------------- pytest
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers --strict-config"
+markers = [
+  "integration: requires a live PostgreSQL (set MRIP_TEST_DATABASE_URL)",
+  "slow: excluded from the fast feedback loop",
+]
+filterwarnings = ["error"]
+
+[tool.coverage.run]
+branch = true
+source = ["mrip"]

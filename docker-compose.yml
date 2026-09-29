@@ -1,0 +1,163 @@
+# MRIP — local and single-host deployment stack.
+#
+# One PostgreSQL instance is the entire stateful backend: store of record, job
+# queue (SELECT … FOR UPDATE SKIP LOCKED), lexical search (tsvector), vector
+# search (pgvector) and the audit log. There is deliberately no Redis, no
+# Elasticsearch and no separate vector database — see docs/ARCHITECTURE.md §4.
+#
+# The api, worker and scheduler are the same image with different commands.
+#
+#   docker compose up -d postgres       # just the datastore, for development
+#   docker compose up -d                # the whole stack
+#   docker compose --profile test up -d postgres-test
+
+name: mrip
+
+x-api-image: &api-image
+  build:
+    context: ./apps/api
+    dockerfile: Dockerfile
+  environment: &api-env
+    MRIP_DATABASE_URL: postgresql+psycopg://mrip:${POSTGRES_PASSWORD:-mrip_dev_only}@postgres:5432/mrip
+    MRIP_PROFILE: ${MRIP_PROFILE:-dev}
+    MRIP_DATA_DIR: /var/lib/mrip/data
+    MRIP_BLOB_DIR: /var/lib/mrip/blobs
+    MRIP_LOG_FORMAT: json
+  volumes:
+    - mrip-data:/var/lib/mrip
+  depends_on:
+    postgres:
+      condition: service_healthy
+  restart: unless-stopped
+
+services:
+  postgres:
+    # pgvector's own image, tracking PostgreSQL 17. Pinned by digest in the
+    # offline install bundle (roadmap 8.7); floating here for development.
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: mrip
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mrip_dev_only}
+      POSTGRES_DB: mrip
+      # Deterministic collation. A database that sorts entity names differently
+      # between hosts produces reports that differ between hosts.
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - pg_stat_statements.track=all
+      # The queue polls with SKIP LOCKED; keep lock waits visible in logs.
+      - -c
+      - log_lock_waits=on
+      - -c
+      - log_min_duration_statement=1000
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - mrip-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mrip -d mrip"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+
+  # Throwaway database for the integration suite. tmpfs-backed: tests should not
+  # be able to leave state behind, and should not touch the development volume.
+  postgres-test:
+    profiles: ["test"]
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: mrip
+      POSTGRES_PASSWORD: mrip_test_only
+      POSTGRES_DB: mrip_test
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    command: ["postgres", "-c", "fsync=off", "-c", "full_page_writes=off"]
+    ports:
+      - "${POSTGRES_TEST_PORT:-5433}:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mrip -d mrip_test"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  # Applies Alembic migrations, then exits. Everything that talks to the database
+  # waits for this to succeed, so no process ever serves against a stale schema.
+  migrate:
+    <<: *api-image
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+
+  api:
+    <<: *api-image
+    command:
+      - uvicorn
+      - mrip.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --proxy-headers
+    ports:
+      - "${API_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # Long work lives here, never in a request. Scale with:
+  #   docker compose up -d --scale worker=4
+  worker:
+    <<: *api-image
+    command: ["mrip-worker"]
+    environment:
+      <<: *api-env
+      MRIP_WORKER_CONCURRENCY: "2"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  # Periodic work: retention enforcement, re-indexing, accuracy sweeps. A single
+  # instance; a Postgres advisory lock makes a second one a no-op rather than a
+  # duplicate-job bug.
+  scheduler:
+    <<: *api-image
+    command: ["mrip-scheduler"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+    environment:
+      # The browser never calls the API cross-origin; Next rewrites /api/* to it.
+      MRIP_API_URL: http://api:8000
+      NODE_ENV: production
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    depends_on:
+      api:
+        condition: service_started
+    restart: unless-stopped
+
+volumes:
+  mrip-pgdata:
+  mrip-data:

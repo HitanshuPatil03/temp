@@ -1,0 +1,176 @@
+name: CI
+
+# The roadmap's phase gates are only real if they run here. Anything asserted in
+# a document and not checked in this file is a claim, not a property.
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.13"
+  NODE_VERSION: "22"
+
+jobs:
+  api:
+    name: API — lint, types, tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api
+
+    services:
+      postgres:
+        # Same image and major version as deployment. Testing against a
+        # different engine would not exercise the partial unique indexes,
+        # composite foreign keys or the audit-log trigger this schema relies on.
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: mrip
+          POSTGRES_PASSWORD: mrip_ci
+          POSTGRES_DB: mrip_test
+          POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U mrip -d mrip_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: apps/api/pyproject.toml
+
+      - name: Install
+        run: python -m pip install -e ".[dev]"
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Format check
+        run: ruff format --check .
+
+      - name: Types
+        run: mypy mrip
+
+      - name: Tests
+        env:
+          MRIP_TEST_DATABASE_URL: postgresql+psycopg://mrip:mrip_ci@127.0.0.1:5432/mrip_test
+        run: pytest -q --cov=mrip --cov-report=term-missing
+
+      # Gate (roadmap 0.3): the schema the code expects and the schema the
+      # migrations produce must be the same thing. A drifted column is how a
+      # fact store starts returning plausible wrong numbers.
+      - name: Migrations apply and round-trip
+        env:
+          MRIP_DATABASE_URL: postgresql+psycopg://mrip:mrip_ci@127.0.0.1:5432/mrip_ci_migrate
+        run: |
+          python - <<'PY'
+          import sqlalchemy as sa
+          e = sa.create_engine(
+              "postgresql+psycopg://mrip:mrip_ci@127.0.0.1:5432/postgres",
+              isolation_level="AUTOCOMMIT",
+          )
+          with e.connect() as c:
+              c.execute(sa.text("CREATE DATABASE mrip_ci_migrate"))
+          PY
+          alembic upgrade head
+          alembic downgrade base
+          alembic upgrade head
+
+      - name: No schema drift between metadata and migrations
+        env:
+          MRIP_DATABASE_URL: postgresql+psycopg://mrip:mrip_ci@127.0.0.1:5432/mrip_ci_migrate
+        run: |
+          alembic revision --autogenerate -m "drift check" --rev-id ci_drift
+          if grep -qE "op\.(create|drop|alter|add)_" migrations/versions/ci_drift_drift_check.py; then
+            echo "::error::Autogenerate found changes — mrip/db/tables.py and the migrations disagree."
+            cat migrations/versions/ci_drift_drift_check.py
+            exit 1
+          fi
+          rm migrations/versions/ci_drift_drift_check.py
+
+      # Gate (roadmap 4, enforced from day one): if the model runtime is
+      # switched off, every deterministic path must still work. This is the
+      # differentiation thesis, checked rather than asserted.
+      - name: Deterministic core works with inference disabled
+        env:
+          MRIP_TEST_DATABASE_URL: postgresql+psycopg://mrip:mrip_ci@127.0.0.1:5432/mrip_test
+          MRIP_LLM_ENABLED: "false"
+        run: pytest -q
+
+  web:
+    name: Web — lint, types, build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install
+        run: npm ci || npm install
+
+      # Next 16 emits the global PageProps/LayoutProps helpers the app uses, so
+      # typegen has to run before tsc.
+      - name: Route types
+        run: npx next typegen
+
+      - name: Types
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npx eslint src --max-warnings 0
+
+      - name: Build
+        run: npm run build
+
+  licences:
+    name: Dependency licences
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      # A government deployment is asked what it is running and under what terms.
+      # This produces the answer on every commit rather than as an archaeology
+      # exercise at handover.
+      - name: Inventory Python dependency licences
+        working-directory: apps/api
+        run: |
+          python -m pip install -e "." pip-licenses
+          pip-licenses --format=markdown --with-urls \
+            --order=license > licences-python.md
+          cat licences-python.md
+          # Copyleft that would reach MRIP's own source. LGPL is acceptable for
+          # an unmodified imported library (psycopg is LGPL-3.0) and is not
+          # matched here; AGPL and plain GPL are.
+          if grep -Ei "^\| *(GNU )?(Affero|AGPL)" licences-python.md; then
+            echo "::error::An AGPL dependency reached the tree. Replace it."
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: licence-inventory
+          path: apps/api/licences-python.md
