@@ -1,0 +1,353 @@
+# MRIP — Mining Reporting Intelligence Platform
+
+**SIH26023** · Ministry of Coal / CMPDI–Coal India Limited
+
+> An evidence engine that produces reports — not a mining-themed chatbot.
+
+Every number MRIP shows is a row in a fact store with a pointer back to the document,
+version, page, table and cell it came from. The language model never invents a figure;
+it explains figures the deterministic layer has already extracted and validated.
+
+**The invariant:** *a number with no traceable evidence never reaches a user.*
+
+Here is what that looks like in practice — a real upload, through the real pipeline:
+
+```
+mcl   coal_production  FY2023-24  193,000,000 t  (raw 193.0 Million Tonnes)  p.1 p1t1 r2c1  'MCL | 193.00'
+secl  coal_production  FY2024-25  193,000,000 t  (raw 193.0 Million Tonnes)  p.1 p1t1 r1c2  'SECL | 193.00'
+```
+
+The canonical value is comparable; the raw value is what the page printed; the locator is
+where to look. The "Total" row in that table produced no fact at all, because storing a
+total beside its parts double-counts every aggregate computed from it.
+
+---
+
+## The three deliverables SIH26023 asks for
+
+| # | Deliverable | What makes it more than a feature | State |
+|---|---|---|---|
+| 1 | **Automated Report Generation Platform** | A published report **pins its evidence** — every figure records the `fact_id` and `document@version` behind it, so the same report re-renders a year later and diffs against what the corpus says now | Designed ([ARCHITECTURE §11](docs/ARCHITECTURE.md)); the fact store and traceability it stands on are built |
+| 2 | **Word Cloud & Topic Identification** | Every term is **click-through to the pages that produced it**, sized by document frequency, and built from the caller's access scope | Designed (§12); the evidence index it reads is built |
+| 3 | **AI-Based Query & Response System** | The **exact-figure path has no model client in it** — questions with a numeric answer are answered by SQL over facts; the model writes prose around figures it was handed and cannot introduce a citation | Designed (§13); lexical retrieval is built |
+
+Underneath all three is the part that is finished and tested: ingestion, extraction into
+evidence-backed facts, normalization, validation, the conflict radar, identity with
+row-level scope, and an append-only audit trail.
+
+**On the percentages the PS asks for** — report-time reduction, extraction accuracy,
+automation rate — this repository publishes none of them yet, and
+[ARCHITECTURE §14](docs/ARCHITECTURE.md) says exactly what each one is computed from and
+what has to exist first. Real documents are not the shortage — there are
+[3,404 of them](#real-documents) — but an accuracy percentage needs documents whose figures
+someone has transcribed as ground truth, and one computed without that would measure our
+own reading.
+
+---
+
+## What this is built for
+
+An **on-premise, multi-user, audited deployment inside the CMPDI/CIL network**, holding
+real unpublished production figures and draft parliamentary answers. That constraint,
+not a demo, drives every decision:
+
+- **No hosted inference, and no runtime network egress at all.** Local models only. No
+  API key exists to leak or rotate. Even the web fonts are system fonts.
+- **Concurrency from the foundation.** PostgreSQL as the system of record, because
+  reviewers resolving conflicts while workers write facts is multi-writer traffic.
+- **Row-level access scope in the schema.** An SECL officer does not see MCL's
+  unpublished figures. Enforced in the repository layer and by an introspection test,
+  not by the care of whoever writes the next query.
+- **Conflicts are never merged.** When two documents disagree, both are shown with their
+  pages and a person names the winner. There is no endpoint that averages them.
+
+See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full design and
+[`docs/ROADMAP.md`](docs/ROADMAP.md) for phases and their gates.
+
+---
+
+## Quick start
+
+> **Reviewing this project?** [`docs/EVALUATION.md`](docs/EVALUATION.md) gets you to a
+> populated system in about ten minutes, with demonstration accounts, and says what to
+> click to test each claim — including how to try to break them.
+
+Requires **Docker**, **Python 3.12+** and **Node 22+**.
+
+```bash
+cp .env.example .env
+docker compose up -d postgres
+```
+
+```bash
+cd apps/api && python -m pip install -e ".[dev]" && alembic upgrade head
+```
+
+There is **no default administrator**, because a well-known first password is the most
+common way an on-prem system is compromised. Create one on the host:
+
+```bash
+mrip-admin create-user admin --role admin --entities '*' --no-force-change
+```
+
+For something to look at, seed a small synthetic corpus — four documents through the
+**real** pipeline, including a revised report that genuinely disagrees with the first:
+
+```bash
+mrip-admin seed-demo
+```
+
+It prints five accounts, one per role, sharing the password `sih-demo-2026-mrip`. Every
+seeded document is flagged synthetic and badged in the UI, because a demonstration figure
+must never be mistaken for a government source.
+
+Then run the three processes — API, worker, scheduler:
+
+```bash
+python -m uvicorn mrip.main:app --reload --port 8000
+```
+
+```bash
+mrip-worker
+```
+
+```bash
+mrip-scheduler
+```
+
+```bash
+cd apps/web && npm install && npm run dev
+```
+
+**The local model is optional.** Narrative answers and the prose sections of a report use
+it; every figure, table, chart, search result and conflict works without it. To enable it:
+
+```bash
+ollama pull qwen3:8b
+```
+
+The platform talks to Ollama on `127.0.0.1:11434` and nothing leaves the host. With
+`MRIP_LLM_ENABLED=false` the deterministic paths are unchanged and the generative ones say
+so rather than degrading silently — CI runs the suite both ways.
+
+Open <http://localhost:3000>, sign in, and upload a document from the Documents page.
+The browser never calls the API directly and never holds a token: the session lives in an
+httpOnly cookie, and `apps/web/src/proxy.ts` turns it into a bearer header server-side.
+
+Or bring the whole stack up at once:
+
+```bash
+docker compose up -d
+```
+
+### No Docker? (Windows / WSL2)
+
+Docker Desktop needs an elevated service, which some managed laptops will not start.
+The same PostgreSQL 17 + pgvector 0.8.6 runs inside WSL2 with no administrator rights:
+
+```bash
+wsl -d Ubuntu -u root -- bash /mnt/c/path/to/repo/infra/wsl-postgres-setup.sh
+```
+
+```bash
+bash infra/wsl-db-env.sh
+```
+
+The second script discovers the distro's address (WSL2 assigns it per boot), keeps the VM
+from idling out — which otherwise stops the database and looks exactly like a network
+fault — and writes `apps/api/.env`. The test suite reads it from there.
+
+### Tests
+
+```bash
+cd apps/api && pytest -q
+```
+
+The suite runs against a **real PostgreSQL** (it creates `mrip_test` beside the dev
+database), because partial unique indexes, composite foreign keys, `LEAST` ignoring
+nulls and the audit log's append-only trigger are not behaviours a stand-in reproduces.
+With no database reachable, the database-backed tests skip with an actionable message
+and the pure-logic suites still run.
+
+```bash
+cd apps/api && ruff check . && mypy mrip
+```
+
+```bash
+cd apps/web && npx tsc --noEmit && npx eslint . && npx next build
+```
+
+---
+
+## How a document becomes a figure
+
+```
+upload ──► boundary ──► blob store ──► queue
+             │             │
+   type by magic number,   SHA-256 of the *sanitized*
+   page cap, encrypted     bytes is the key and the
+   PDF refused, active     identity: re-uploading the
+   content stripped        same file is a no-op
+                                   │
+   classify ─► digitize ─► extract ─► normalize ─► validate ─► index ─► ready
+      │           │           │           │            │          │
+   text layer   lines with  table cells  weak figures  domain    facets from
+   or scan,     bbox, table  → facts     → review      rules +   the facts
+   per page     cells, sheet  via the                  conflict
+                cells        normalizers               radar
+```
+
+Each stage is a job. Its output and its state change commit in one transaction, and a
+re-run replaces its own output rather than appending — so a worker can be killed at any
+instant and the resumed run produces identical rows. The queue is
+`SELECT … FOR UPDATE SKIP LOCKED` in the same PostgreSQL, which is why there is no broker:
+*enqueuing a job is part of the transaction that makes it necessary.*
+
+## Real documents
+
+The extractor is developed against documents Coal India actually publishes, not against
+tables we invented. `mrip-admin fetch-corpus` crawls the eleven publishers below — one
+request per second per host, `robots.txt` obeyed, backing off when a WAF starts serving
+CAPTCHAs instead of pages — and files each document under the company it is *about*
+rather than the page it was linked from, because CIL's annual-reports page carries every
+subsidiary's annual report:
+
+| | files | | files |
+|---|---|---|---|
+| Western Coalfields | 1,125 | Central Mine Planning & Design Institute | 130 |
+| Coal India Limited | 771 | South Eastern Coalfields | 97 |
+| Mahanadi Coalfields | 486 | Coal Controller's Organisation | 47 |
+| Ministry of Coal | 418 | Central Coalfields | 33 |
+| Bharat Coking Coal | 240 | Eastern Coalfields | 29 |
+| | | Northern Coalfields | 28 |
+
+**3,404 files, 25.4 GB** — 3,393 PDFs and 11 spreadsheets: monthly production and offtake
+statements, provisional coal statistics, annual reports and accounts. They came off 3,404
+distinct URLs and are **3,071 distinct documents**, because a subsidiary's annual report is
+usually published both on its own site and on `coalindia.in`; the manifest records every
+address rather than quietly dropping one, and the intake boundary collapses them on
+SHA-256 the same way it collapses a re-upload. The same overlap puts 57 files under two
+companies — the copy on `coalindia.in` carries no subsidiary marker in its path, so the
+router falls back to the site that linked it. That is a known limit of routing by URL, and
+it is counted here rather than hidden.
+
+```bash
+mrip-admin fetch-corpus                 # crawl and download, resumable
+```
+
+```bash
+mrip-admin ingest-corpus --limit 50     # put them through all six stages
+```
+
+The documents themselves are **not** in this repository — 25 GB of public PDFs are not
+ours to redistribute, and git is the wrong place for them. What *is* committed is
+[`data/corpus/manifest.json`](data/corpus/manifest.json): for every file, its publisher,
+its title, the **URL it came from**, its SHA-256 and when it was retrieved. That is the
+provenance record — it is how you check that these figures came off documents Coal India
+published, and it rebuilds the same corpus on another machine. `tests/test_corpus_routing.py`
+holds it to its own rules: one publisher name per company, a source URL and a hash on
+every entry, and the declared count matching the documents listed.
+
+**What the real corpus changed.** Reading them is not a formality; they broke things that
+synthetic tables never would:
+
+- **CIL's monthly statements are scans whose OCR was saved back into the PDF.** They have
+  a text layer with true coordinates and untrustworthy glyphs — `63.5` read back as
+  `635`. Treating that as "has a text layer" ingests wrong figures; treating it as "no
+  text layer" throws away a usable grid. Of the 122 production, offtake and performance
+  statements in the corpus, 17 are in this state and 41 more carry no text objects at all.
+  The reader now verifies every figure against the page's own printed `% GROWTH` column
+  and refuses, per block and per row, what fails — without needing to know the right
+  answer. The tests in `tests/test_performance_statement.py` are transcribed cell for
+  cell out of two of those documents, OCR wounds included.
+- **A figure read off a recognised layer is not as trustworthy as a typeset one, and says
+  so.** Its `ocr` confidence carries the rate at which the recogniser reproduced the
+  page's own arithmetic — 0.875 on the May 2026 statement, 7 of 8 checkable rows — rather
+  than a `None` that would claim the figure was typeset.
+- **34,427 of the corpus's 187,424 pages are true scans with no text objects at all.**
+  That is 18% of the corpus, and 1,256 of its 3,060 distinct PDFs are scans end to end;
+  521 more carry a recognised layer on at least one page. The scans are not read yet —
+  recovering them needs OCR-with-geometry, and that is stated as unfinished rather than
+  quietly counted as coverage. A further 96 documents defeat the reader outright, one of
+  them by segfaulting PyMuPDF rather than raising; because every stage commits its own
+  output and a re-run replaces it, that is a document the pipeline reports as failed and
+  not a run it corrupts.
+
+## Layout
+
+```
+apps/api/                 FastAPI + workers (one image, three entrypoints)
+  mrip/
+    schemas.py            The domain contract. A Fact cannot exist without evidence.
+    normalize/            Units, fiscal periods, CIL entities, metrics — pure, no storage
+    ingest/
+      intake.py           The upload boundary: refuses with a reason
+      digitize.py         Bytes → evidence rows, with page and bounding box
+      lifecycle.py        The state machine, as a table of legal transitions
+      pipeline.py         One job handler per stage
+    facts/extract.py      Table cells → facts, refusing what it cannot resolve
+    validate/rules.py     Domain rules that route figures to review, never correct them
+    db/
+      tables.py           SQLAlchemy Core schema; the constraints are the argument
+      repositories/       One per aggregate, each requiring an access scope
+      store.py            Facade over one transaction
+    auth/                 Scope, roles, Argon2id passwords, tokens
+    jobs/                 Queue, worker, scheduler
+    api/                  Routes. Every read is scoped.
+    cli.py                mrip-admin: bootstrap and day-to-day operator commands
+  migrations/             Alembic, forward-only
+apps/web/                 Next.js 16 + React 19 + Tailwind 4, light theme
+  src/proxy.ts            Turns the session cookie into a bearer token, server-side
+infra/                    WSL2 database setup, for hosts without Docker
+docs/                     Architecture and roadmap
+```
+
+## Stack
+
+| Layer | Choice | Why |
+|---|---|---|
+| Store of record | PostgreSQL 17 + pgvector | Also the job queue (`SKIP LOCKED`), lexical search (`tsvector`) and vector search — one stateful service for a government sysadmin to operate, not five |
+| API | FastAPI + SQLAlchemy Core | Explicit SQL; an identity map buys nothing for an append-only evidence store |
+| Digitization | PyMuPDF · pdfplumber · openpyxl · RapidOCR (ONNX, CPU) | No native toolchain to provision on a locked-down host |
+| Identity | Argon2id · PyJWT | Tokens carry identity only; role and scope are read per request, so revocation is immediate |
+| Inference | Ollama + **Qwen3 8B** (Q4_K_M, Apache-2.0), local only | Never on the figure path — see ARCHITECTURE §7. 5.2 GB, runs on CPU or a small GPU, which is what a CMPDI host is likely to have |
+| Frontend | Next.js 16 · Tailwind 4 · Recharts | Light theme; shadcn-style primitives held in-repo, no component-vendor dependency |
+
+Everything is free and open source. Licences are permissive (MIT / Apache-2.0 / BSD /
+PSF) with one recorded LGPL exception (`psycopg`, imported unmodified); AGPL and GPL
+fail the build. CI publishes a full licence inventory on every commit.
+
+---
+
+## Current state
+
+**388 tests green in ~40 s** against PostgreSQL 17.11 + pgvector 0.8.6 · ruff and
+`mypy --strict` clean across 61 modules · migrations round-trip with zero schema drift ·
+the frontend builds and serves end to end.
+
+Working today: identity and row-level scope, the append-only audit trail, the job queue
+with its worker and scheduler, the upload boundary, the six-stage ingestion pipeline,
+table extraction into evidence-backed facts, the validation rules, the conflict radar,
+and the reviewer UI over all of it.
+
+Next, in dependency order: the query and response system (PS deliverable 3), then report
+generation (deliverable 1), then the word cloud (deliverable 2) — see
+[`docs/ROADMAP.md`](docs/ROADMAP.md), where each phase names the deliverable it serves and
+the gate it has to pass.
+
+**What is deliberately absent:** an accuracy number. The extractor is exercised against
+3,404 documents Coal India, its subsidiaries, CMPDI, the Coal Controller and the Ministry
+of Coal actually published — see [Real documents](#real-documents) below — and the tests
+that pin the monthly production statement are transcribed cell for cell out of those
+files. But real documents are not the same as *labelled* documents: an accuracy
+percentage needs a gold corpus with ground truth (roadmap 3.6), and a percentage computed
+without one would be measuring our own transcription. The same honesty applies to the OCR
+path: a deployment without the `ocr` extra fails a scanned document loudly rather than
+ingesting it empty, and the recognised-text-layer case is now measured — but the 34,427 true-scan pages in the
+corpus have not been.
+
+## A note on scope
+
+The seven CIL coal subsidiaries are ECL, BCCL, CCL, NCL, WCL, SECL and MCL, plus CMPDI
+and the North Eastern Coalfields unit. **SCCL and NLCIL are not CIL subsidiaries**, and
+the entity normalizer says so explicitly rather than resolving them into the group.
