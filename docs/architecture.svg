@@ -38,7 +38,7 @@
   <text class="tlabel" x="84" y="170">Reviewer / Officer</text>
   <text class="tsub" x="84" y="190">browser, no token held</text>
   <rect class="chip" x="360" y="152" width="880" height="40" stroke="#c9d5ef" stroke-width="1.5"/>
-  <text class="chiptxt" x="380" y="177">Documents · Facts · Conflict radar · Normalize · Account — session lives in an httpOnly cookie, never in JavaScript</text>
+  <text class="chiptxt" x="380" y="177">Documents · Facts · Conflict radar · Normalize · Account — session in an httpOnly cookie, not in JS</text>
 
   <!-- ===== T2 Web tier ===== -->
   <rect class="tier" x="60" y="240" width="1200" height="140" fill="#e7f5ec" stroke="#2e7d46" stroke-width="2"/>
@@ -99,7 +99,7 @@
   <rect class="chip" x="360" y="626" width="280" height="44" stroke="#c3cbd8" stroke-width="1.5"/>
   <text class="chiptxt" x="376" y="647">API</text><text class="chipsub" x="376" y="663">uvicorn — mrip.main:app</text>
   <rect class="chip" x="660" y="626" width="280" height="44" stroke="#c3cbd8" stroke-width="1.5"/>
-  <text class="chiptxt" x="676" y="647">Worker</text><text class="chipsub" x="676" y="663">mrip-worker — SELECT … FOR UPDATE SKIP LOCKED</text>
+  <text class="chiptxt" x="676" y="647">Worker</text><text class="chipsub" x="676" y="663">mrip-worker — SKIP LOCKED claim</text>
   <rect class="chip" x="960" y="626" width="280" height="44" stroke="#c3cbd8" stroke-width="1.5"/>
   <text class="chiptxt" x="976" y="647">Scheduler</text><text class="chipsub" x="976" y="663">mrip-scheduler — periodic enqueue</text>
 
@@ -123,9 +123,9 @@
     <line x1="940" y1="726" x2="962" y2="726" stroke="#55617a" stroke-width="1.5" marker-end="url(#arrow)"/>
     <line x1="1090" y1="726" x2="1112" y2="726" stroke="#55617a" stroke-width="1.5" marker-end="url(#arrow)"/>
   </g>
-  <text class="note" x="362" y="782">Upload → intake boundary (type by magic number, page cap, encrypted PDF refused, zip-bomb refused) → blob store (SHA-256 = key = identity) → queue.</text>
-  <text class="note" x="362" y="802">Each stage commits its output and its state change in one transaction; a re-run replaces its own output — kill a worker at any instant, the resumed run produces identical rows.</text>
-  <text class="note" x="362" y="822">Refuse rather than guess: every declined cell is counted by reason. A "Total" row produces no fact — storing a total beside its parts double-counts every aggregate.</text>
+  <text class="note" x="362" y="782">Upload → intake (magic-number type, page cap, encrypted PDF &amp; zip-bomb refused) → blob store (SHA-256 = key = identity) → queue.</text>
+  <text class="note" x="362" y="802">Each stage commits its output and state change in one transaction; a killed worker's resumed run produces identical rows.</text>
+  <text class="note" x="362" y="822">Refuse rather than guess: every declined cell is counted by reason — a "Total" row yields no fact, avoiding double-counting.</text>
 
   <line x1="660" y1="846" x2="660" y2="874" stroke="#55617a" stroke-width="2" marker-end="url(#arrow)"/>
 
@@ -165,7 +165,7 @@
   <text class="chipsub" x="980" y="1100">(pgvector) in the same store</text>
   <rect class="chip" x="360" y="1124" width="880" height="70" stroke="#d3c4ee" stroke-width="1.5"/>
   <text class="chiptxt" x="380" y="1150">Conflicts are never merged</text>
-  <text class="chipsub" x="380" y="1172">when two documents disagree, both are shown with their pages and a reviewer names the winner — the loser becomes rejected, not superseded. No endpoint averages them.</text>
+  <text class="chipsub" x="380" y="1172">both are shown with their pages and a reviewer names the winner — the loser is rejected, not superseded; no endpoint averages them.</text>
 
   <line x1="660" y1="1210" x2="660" y2="1238" stroke="#55617a" stroke-width="2" marker-end="url(#arrow)"/>
   <text class="note" x="672" y="1230">reads facts, never writes them</text>
@@ -177,9 +177,10 @@
   <rect class="chip" x="360" y="1260" width="420" height="62" stroke="#eec4d2" stroke-width="1.5"/>
   <text class="chiptxt" x="380" y="1288">Ollama + Qwen3 8B (Q4_K_M, Apache-2.0)</text>
   <text class="chipsub" x="380" y="1308">127.0.0.1:11434 — nothing leaves the host</text>
-  <rect class="chip" x="800" y="1260" width="440" height="62" stroke="#eec4d2" stroke-width="1.5"/>
-  <text class="chiptxt" x="820" y="1288">Never on the figure path</text>
-  <text class="chipsub" x="820" y="1308">a test fails the build if the figure path imports a model client; the model explains figures it was handed, cannot introduce one</text>
+  <rect class="chip" x="800" y="1260" width="440" height="68" stroke="#eec4d2" stroke-width="1.5"/>
+  <text class="chiptxt" x="820" y="1284">Never on the figure path</text>
+  <text class="chipsub" x="820" y="1304">a test fails the build if the figure path imports a model client</text>
+  <text class="chipsub" x="820" y="1320">the model explains figures it was handed, never invents one</text>
 
   <!-- ===== Deliverables ===== -->
   <text class="tlabel" x="60" y="1382">The three SIH26023 deliverables</text>
