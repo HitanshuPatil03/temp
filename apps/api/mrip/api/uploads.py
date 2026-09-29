@@ -1,0 +1,381 @@
+"""Upload and document-lifecycle endpoints.
+
+The upload path is the one place untrusted bytes enter the system, and its order
+of operations is the design:
+
+1. **stream to staging**, counting bytes against the cap as they arrive — a size
+   limit checked after the upload has landed is not a limit;
+2. **inspect at the boundary** (:mod:`mrip.ingest.intake`) — type by magic
+   number, page cap, encrypted PDF refused, active content stripped;
+3. **hash what will be stored**, after sanitizing, so the content hash is the
+   hash of the bytes the corpus actually holds;
+4. **dedup on that hash** — identical bytes are the same document, and the
+   second upload is a no-op that returns the first;
+5. **register and enqueue in one transaction**, so a crash can never leave a
+   document row with nothing scheduled to process it.
+
+Step 5 is why there is no message broker in this architecture (ARCHITECTURE §4).
+
+A refusal from the boundary is a **422 with a reason a person can act on**, not a
+400 with "invalid file". The distinction matters to the officer who has been
+handed a password-protected PDF by a subsidiary and needs to know what to ask
+for.
+"""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
+from typing import Annotated, Any
+
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    UploadFile,
+    status,
+)
+from pydantic import BaseModel
+
+from mrip import log
+from mrip.api.deps import (
+    ScopeDep,
+    SettingsDep,
+    SourceIpDep,
+    StoreDep,
+    require_role,
+)
+from mrip.auth.principal import Principal
+from mrip.blobs import CHUNK_BYTES, get_blob_store
+from mrip.db.repositories.documents import new_id
+from mrip.ingest.intake import IntakeError, inspect_upload
+from mrip.ingest.lifecycle import (
+    PIPELINE,
+    STAGES,
+    IllegalTransitionError,
+    require_transition,
+    stage_by_name,
+)
+from mrip.ingest.pipeline import enqueue_next_stage
+from mrip.jobs.queue import JobQueue
+from mrip.schemas import Document, DocumentState, Role, Sensitivity
+
+router = APIRouter(tags=["documents"])
+
+logger = log.get_logger("mrip.upload")
+
+#: Uploading is how figures enter the corpus; a viewer is someone who reads it.
+OfficerDep = Annotated[Principal, Depends(require_role(Role.OFFICER))]
+
+
+class UploadResponse(BaseModel):
+    """What an accepted upload returns."""
+
+    document_id: str
+    content_hash: str
+    filename: str
+    doc_class: str
+    state: DocumentState
+    page_count: int | None
+    size_bytes: int
+    #: False when these bytes were already in the corpus. Not an error: it is the
+    #: mechanism that makes a retried upload safe.
+    created: bool
+    #: What the boundary did to the file, verbatim, so the uploader is told
+    #: rather than surprised.
+    notes: list[str] = []
+
+
+@router.post(
+    "/documents",
+    response_model=UploadResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_document(
+    request: Request,
+    store: StoreDep,
+    settings: SettingsDep,
+    officer: OfficerDep,
+    caller_ip: SourceIpDep,
+    file: Annotated[UploadFile, File(description="The source document")],
+    publisher_entity_id: Annotated[str | None, Form()] = None,
+    fiscal_year: Annotated[str | None, Form()] = None,
+    title: Annotated[str | None, Form()] = None,
+    sensitivity: Annotated[Sensitivity, Form()] = Sensitivity.INTERNAL,
+) -> UploadResponse:
+    """Accept a source document and start its ingestion.
+
+    Requires the **officer** role: uploading is how figures enter the corpus, and
+    a viewer is someone who reads it.
+    """
+    settings.ensure_dirs()
+    staging = settings.upload_staging_dir / f"{new_id('up')}-{file.filename or 'upload'}"
+
+    written = 0
+    try:
+        with staging.open("wb") as sink:
+            while chunk := await file.read(CHUNK_BYTES):
+                written += len(chunk)
+                if written > settings.max_upload_bytes:
+                    # Refused mid-stream: a cap enforced after the fact would
+                    # have already cost the disk and the wait.
+                    raise IntakeError(
+                        "too_large",
+                        f"This upload exceeds the "
+                        f"{settings.max_upload_bytes / 1e6:,.0f} MB limit and was "
+                        "stopped part-way.",
+                    )
+                sink.write(chunk)
+
+        report = inspect_upload(
+            staging,
+            filename=file.filename or "upload.bin",
+            max_bytes=settings.max_upload_bytes,
+            max_pages=settings.max_upload_pages,
+        )
+
+        # Hashed *after* sanitizing, so the content hash identifies the bytes the
+        # corpus holds rather than the ones that were sent.
+        blobs = get_blob_store()
+        blob = blobs.put_file(staging)
+
+        existing = store.find_document_by_hash(blob.content_hash)
+        if existing is not None:
+            logger.info(
+                "upload deduplicated",
+                document_id=existing.document_id,
+                content_hash=blob.content_hash,
+            )
+            return UploadResponse(
+                document_id=existing.document_id,
+                content_hash=existing.content_hash,
+                filename=existing.filename,
+                doc_class=existing.doc_class.value,
+                state=existing.state,
+                page_count=existing.page_count,
+                size_bytes=existing.size_bytes,
+                created=False,
+                notes=[
+                    "These exact bytes are already in the corpus, so nothing was "
+                    f"re-ingested. The existing document is {existing.document_id}."
+                ],
+            )
+
+        document = Document(
+            document_id=new_id("doc"),
+            content_hash=blob.content_hash,
+            filename=file.filename or "upload.bin",
+            doc_class=report.doc_class,
+            page_count=report.page_count,
+            size_bytes=report.size_bytes,
+            title=title,
+            publisher_entity_id=publisher_entity_id,
+            fiscal_year=fiscal_year,
+            ingested_at=datetime.now(UTC),
+            notes="\n".join(report.notes) or None,
+            state=DocumentState.RECEIVED,
+            sensitivity=sensitivity,
+            blob_key=blob.content_hash,
+            uploaded_by=officer.user_id,
+        )
+
+        # Registration and the first job commit together. That is the property
+        # that makes a broker unnecessary: there is no instant at which a
+        # document exists with nothing scheduled to process it.
+        store.register_document(document)
+        enqueue_next_stage(store, document, DocumentState.RECEIVED)
+        store.audit.record(
+            "document.uploaded",
+            actor_user_id=officer.user_id,
+            actor_username=officer.username,
+            subject_type="document",
+            subject_id=document.document_id,
+            entity_scope=publisher_entity_id,
+            detail={
+                "filename": document.filename,
+                "content_hash": blob.content_hash,
+                "doc_class": report.doc_class.value,
+                "pages": report.page_count,
+                "stripped": list(report.stripped),
+                "size_bytes": report.size_bytes,
+            },
+            request_id=getattr(request.state, "request_id", None),
+            source_ip=caller_ip,
+        )
+
+        logger.info(
+            "document accepted",
+            document_id=document.document_id,
+            doc_class=report.doc_class.value,
+            pages=report.page_count,
+            size_bytes=report.size_bytes,
+        )
+        return UploadResponse(
+            document_id=document.document_id,
+            content_hash=document.content_hash,
+            filename=document.filename,
+            doc_class=document.doc_class.value,
+            state=document.state,
+            page_count=document.page_count,
+            size_bytes=document.size_bytes,
+            created=True,
+            notes=report.notes,
+        )
+
+    except IntakeError as refused:
+        # Recorded even though nothing was stored: a stream of rejected uploads
+        # is something an administrator should be able to see.
+        store.audit.record(
+            "document.refused",
+            actor_user_id=officer.user_id,
+            actor_username=officer.username,
+            subject_type="upload",
+            subject_id=file.filename,
+            detail={"code": refused.code, "reason": str(refused), **refused.detail},
+            request_id=getattr(request.state, "request_id", None),
+            source_ip=caller_ip,
+        )
+        logger.warning("upload refused", code=refused.code, filename=file.filename)
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "error": refused.code,
+                "message": str(refused),
+                **({"context": refused.detail} if refused.detail else {}),
+            },
+        ) from refused
+    finally:
+        staging.unlink(missing_ok=True)
+
+
+class RetryRequest(BaseModel):
+    """Re-run a document from a named stage."""
+
+    stage: str = "classify"
+
+
+@router.post("/documents/{document_id}/retry")
+def retry_document(
+    document_id: str,
+    body: RetryRequest,
+    store: StoreDep,
+    scope: ScopeDep,
+    officer: OfficerDep,
+    request: Request,
+    caller_ip: SourceIpDep,
+) -> dict[str, Any]:
+    """Re-run a document from a stage, after a failure or a fixed extractor.
+
+    Safe because every stage replaces its own output rather than appending to it:
+    a re-run produces the same rows, not a second copy. The state is moved back
+    to *before* the named stage so the normal chain carries it forward from
+    there.
+    """
+    document = store.get_document(document_id, scope)
+    if document is None:
+        raise HTTPException(status_code=404, detail=f"No document {document_id!r}")
+
+    try:
+        stage = stage_by_name(body.stage)
+    except ValueError as unknown:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "error": "unknown_stage",
+                "message": str(unknown),
+                "stages": [item.name for item in STAGES],
+            },
+        ) from unknown
+
+    # The state a document must be in for `stage` to be the next thing that runs.
+    previous = {item.job_kind: state for state, item in PIPELINE.items()}[stage.job_kind]
+
+    try:
+        require_transition(document.state, previous)
+    except IllegalTransitionError as illegal:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"error": "illegal_transition", "message": str(illegal)},
+        ) from illegal
+
+    store.documents.set_state(document_id, previous)
+    outcome = JobQueue(store.connection).enqueue(
+        stage.job_kind,
+        {"document_id": document_id},
+        # A retry deliberately gets a *fresh* key, or it would collapse onto the
+        # job that already ran and nothing would happen.
+        idempotency_key=f"{document_id}:v{document.version}:{stage.name}:retry:"
+        f"{datetime.now(UTC).isoformat(timespec='seconds')}",
+    )
+    store.audit.record(
+        "document.retried",
+        actor_user_id=officer.user_id,
+        actor_username=officer.username,
+        subject_type="document",
+        subject_id=document_id,
+        detail={"stage": stage.name, "from_state": document.state.value},
+        request_id=getattr(request.state, "request_id", None),
+        source_ip=caller_ip,
+    )
+    return {
+        "document_id": document_id,
+        "stage": stage.name,
+        "state": previous.value,
+        "job_id": outcome.job.job_id,
+    }
+
+
+@router.get("/documents/{document_id}/progress")
+def document_progress(
+    document_id: str, store: StoreDep, scope: ScopeDep
+) -> dict[str, Any]:
+    """Where a document is in the pipeline, and what each stage produced.
+
+    The counters come from ``stage_progress``, which is written **outside** the
+    stage's transaction precisely so this endpoint can answer while the stage is
+    still running.
+    """
+    document = store.get_document(document_id, scope)
+    if document is None:
+        raise HTTPException(status_code=404, detail=f"No document {document_id!r}")
+
+    return {
+        "document_id": document_id,
+        "state": document.state.value,
+        "doc_class": document.doc_class.value,
+        "failed_stage": document.failed_stage,
+        "failed_reason": document.failed_reason,
+        "progress": document.stage_progress,
+        "stages": [
+            {
+                "name": stage.name,
+                "description": stage.description,
+                "completed": _stage_completed(document.state, stage.completes_to),
+            }
+            for stage in STAGES
+        ],
+    }
+
+
+#: Lifecycle order, for deciding whether a stage is behind the current state.
+_ORDER = [
+    DocumentState.RECEIVED,
+    DocumentState.CLASSIFIED,
+    DocumentState.DIGITIZED,
+    DocumentState.EXTRACTED,
+    DocumentState.NORMALIZED,
+    DocumentState.VALIDATED,
+    DocumentState.INDEXED,
+    DocumentState.READY,
+]
+
+
+def _stage_completed(current: DocumentState, completes_to: DocumentState) -> bool:
+    if current in {DocumentState.FAILED, DocumentState.QUARANTINED}:
+        return False
+    try:
+        return _ORDER.index(current) >= _ORDER.index(completes_to)
+    except ValueError:
+        return False
