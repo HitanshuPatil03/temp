@@ -149,8 +149,6 @@ plugins = ["pydantic.mypy"]
 # Third-party packages without shipped stubs. Listed explicitly rather than with a
 # blanket ignore, so a package that *gains* stubs starts being checked.
 module = [
-  "fitz.*",
-  "pymupdf.*",
   "pdfplumber.*",
   "openpyxl.*",
   "rapidocr.*",
@@ -161,16 +159,43 @@ module = [
 ]
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+# PyMuPDF ships a py.typed marker in some builds but leaves most of its API
+# unannotated. A typed build turns every fitz call into a no-untyped-call (or
+# attr-defined) error under strict mode, so mypy passes locally and fails in CI
+# purely on which wheel got installed. Treat the package as untyped (Any)
+# regardless of the build, so CI and local agree.
+module = ["fitz", "fitz.*", "pymupdf", "pymupdf.*"]
+follow_imports = "skip"
+ignore_missing_imports = true
+
 # -------------------------------------------------------------------- pytest
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Put the project root (this dir) on sys.path so `from tests.conftest import …`
+# resolves under the plain `pytest` console script, not only `python -m pytest`.
+# `pytest` alone does not add the invocation directory, and the modern editable
+# install exposes only the `mrip` package — not `tests` — so without this the
+# suite collects locally yet fails in CI the moment setuptools stops writing a
+# path-style .pth. Belongs in config, not in a sys.path hack in conftest.
+pythonpath = ["."]
 addopts = "-q --strict-markers --strict-config"
 markers = [
   "integration: requires a live PostgreSQL (set MRIP_TEST_DATABASE_URL)",
   "slow: excluded from the fast feedback loop",
 ]
-filterwarnings = ["error"]
+filterwarnings = [
+  "error",
+  # Starlette 1.x renamed its optional test-client HTTP backend to `httpx2` and
+  # warns when it falls back to plain `httpx` — which it still does, correctly.
+  # The warning is about Starlette's own future, not our code, and `error` above
+  # would otherwise promote it to a collection failure the moment CI installs the
+  # newer wheel (fastapi/starlette are unpinned by design). Scoped to this exact
+  # message; note the class subclasses UserWarning, not DeprecationWarning, so
+  # the category has to say so. Every other warning stays fatal.
+  "ignore:Using .httpx. with .starlette.testclient. is deprecated:UserWarning",
+]
 
 [tool.coverage.run]
 branch = true

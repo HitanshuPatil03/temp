@@ -15,6 +15,7 @@ finds the queue full of already-settled disagreements stops reading it.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 import sqlalchemy as sa
@@ -114,7 +115,7 @@ class ConflictRepository:
                 )
                 .returning(conflicts.c.conflict_id)
             )
-            conflict_id = self._conn.execute(statement).scalar_one()
+            conflict_id: str = self._conn.execute(statement).scalar_one()
             live_conflict_ids.append(conflict_id)
 
             member_ids = list(group["fact_ids"])
@@ -231,7 +232,7 @@ class ConflictRepository:
         )
 
     def _hydrate(self, row: dict[str, Any], scope: Scope) -> ConflictGroup:
-        member_ids = (
+        member_ids: Sequence[str] = (
             self._conn.execute(
                 sa.select(conflict_facts.c.fact_id).where(
                     conflict_facts.c.conflict_id == row["conflict_id"]
@@ -270,7 +271,7 @@ class ConflictRepository:
         the important one. Accepting an arbitrary fact id would let a caller
         "resolve" a disagreement with a number that was never part of it.
         """
-        member_ids = set(
+        member_ids: set[str] = set(
             self._conn.execute(
                 sa.select(conflict_facts.c.fact_id)
                 .join(conflicts, conflicts.c.conflict_id == conflict_facts.c.conflict_id)

@@ -138,7 +138,8 @@ class TestCommittedManifest:
     """
 
     @pytest.fixture(scope="class")
-    def documents(self) -> list[dict[str, object]]:
+    @classmethod
+    def documents(cls) -> list[dict[str, object]]:
         if not MANIFEST.exists():
             pytest.skip(f"no corpus manifest at {MANIFEST}")
         with MANIFEST.open(encoding="utf-8") as handle:

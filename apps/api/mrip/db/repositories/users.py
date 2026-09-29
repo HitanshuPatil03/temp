@@ -487,7 +487,7 @@ class AuditRepository:
         become anonymous the moment an account was removed — which is precisely
         when it matters.
         """
-        audit_id = self._conn.execute(
+        audit_id: int = self._conn.execute(
             sa.insert(audit_log)
             .values(
                 actor_user_id=actor_user_id,
