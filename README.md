@@ -388,13 +388,16 @@ the entity normalizer says so explicitly rather than resolving them into the gro
 
 ## Contributors
 
-A six-member team; the four who authored this repository, and the part each owns:
+The six-member team and the part each owns:
 
 | Member | GitHub | Area |
 |---|---|---|
 | Anurag Maurya | [@Anuragmaurya-2004](https://github.com/Anuragmaurya-2004) | Corpus harvester & provenance, database schema, migrations |
 | Chintan Parave | [@Chintan-05](https://github.com/Chintan-05) | Normalization, ingestion pipeline, fact extraction |
 | Atharva Patil | [@Patil-26](https://github.com/Patil-26) | Web UI, blob storage, test suite, documentation |
-| Shubham Pardule | [@shubhampardule](https://github.com/shubhampardule) | Auth & scope, API, job queue, domain schemas (coordinator) |
+| Shubham Pardule | [@shubhampardule](https://github.com/shubhampardule) | Auth & scope, API, job queue, domain schemas, database (coordinator) |
+| Vaibhavi Sankhe | [@Vaibhavi148](https://github.com/Vaibhavi148) | Normalization and ingestion (with Chintan) |
+| Priya Mali | [@Pri128311](https://github.com/Pri128311) | Normalization and ingestion (with Chintan) |
 
-`git log` reflects this split: each area is authored by the member who owns it.
+`git log` reflects this: each area is authored by the member who owns it, with
+co-authors credited on the work they shared.
