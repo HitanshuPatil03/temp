@@ -351,3 +351,18 @@ corpus have not been.
 The seven CIL coal subsidiaries are ECL, BCCL, CCL, NCL, WCL, SECL and MCL, plus CMPDI
 and the North Eastern Coalfields unit. **SCCL and NLCIL are not CIL subsidiaries**, and
 the entity normalizer says so explicitly rather than resolving them into the group.
+
+---
+
+## Contributors
+
+A six-member team; the four who authored this repository, and the part each owns:
+
+| Member | GitHub | Area |
+|---|---|---|
+| Anurag Maurya | [@Anuragmaurya-2004](https://github.com/Anuragmaurya-2004) | Corpus harvester & provenance, database schema, migrations |
+| Chintan Parave | [@Chintan-05](https://github.com/Chintan-05) | Normalization, ingestion pipeline, fact extraction |
+| Atharva Patil | [@Patil-26](https://github.com/Patil-26) | Web UI, blob storage, test suite, documentation |
+| Shubham Pardule | [@shubhampardule](https://github.com/shubhampardule) | Auth & scope, API, job queue, domain schemas (coordinator) |
+
+`git log` reflects this split: each area is authored by the member who owns it.
