@@ -1,0 +1,216 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1320" height="1660" viewBox="0 0 1320 1660" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#55617a"/>
+    </marker>
+    <style>
+      .surface { fill:#f7f9fc; }
+      .tier { rx:14; }
+      .tlabel { font-size:19px; font-weight:700; fill:#1f2733; }
+      .tsub { font-size:12.5px; fill:#55617a; }
+      .chip { rx:9; fill:#ffffff; }
+      .chiptxt { font-size:14px; font-weight:600; fill:#1f2733; }
+      .chipsub { font-size:11.5px; fill:#55617a; }
+      .designed { fill:#fbf4ec; stroke:#c9702a; stroke-dasharray:6 4; }
+      .flowtxt { font-size:13px; font-weight:600; fill:#1f2733; }
+      .note { font-size:12px; fill:#55617a; }
+      .title { font-size:30px; font-weight:800; fill:#1f2f5e; }
+      .subtitle { font-size:15px; fill:#55617a; }
+      .badge { font-size:10.5px; font-weight:700; }
+    </style>
+  </defs>
+
+  <rect class="surface" x="0" y="0" width="1320" height="1660"/>
+
+  <!-- Title -->
+  <text class="title" x="60" y="58">MRIP — Mining Reporting Intelligence Platform</text>
+  <text class="subtitle" x="60" y="84">SIH26023 · Ministry of Coal / CMPDI–Coal India · evidence-first architecture — every number traces to document · version · page · table · cell</text>
+
+  <!-- Legend -->
+  <rect x="60" y="104" width="16" height="16" rx="4" fill="#ffffff" stroke="#2e7d46" stroke-width="2"/>
+  <text class="note" x="84" y="117">Built &amp; tested (388 tests, real PostgreSQL)</text>
+  <rect x="360" y="104" width="16" height="16" rx="4" class="designed" stroke-width="2"/>
+  <text class="note" x="384" y="117">Designed — on the roadmap (ARCHITECTURE §11–13)</text>
+  <text class="note" x="700" y="117" font-weight="700" fill="#b23a63">No runtime network egress · local models only · no API keys</text>
+
+  <!-- ===== T1 Client ===== -->
+  <rect class="tier" x="60" y="140" width="1200" height="64" fill="#eaf0fc" stroke="#4667c4" stroke-width="2"/>
+  <text class="tlabel" x="84" y="170">Reviewer / Officer</text>
+  <text class="tsub" x="84" y="190">browser, no token held</text>
+  <rect class="chip" x="360" y="152" width="880" height="40" stroke="#c9d5ef" stroke-width="1.5"/>
+  <text class="chiptxt" x="380" y="177">Documents · Facts · Conflict radar · Normalize · Account — session lives in an httpOnly cookie, never in JavaScript</text>
+
+  <!-- ===== T2 Web tier ===== -->
+  <rect class="tier" x="60" y="240" width="1200" height="140" fill="#e7f5ec" stroke="#2e7d46" stroke-width="2"/>
+  <text class="tlabel" x="84" y="272">Web tier</text>
+  <text class="tsub" x="84" y="292">Next.js 16 · React 19</text>
+  <text class="tsub" x="84" y="308">Tailwind 4 · light theme</text>
+  <rect class="chip" x="360" y="258" width="270" height="104" stroke="#bfe3ca" stroke-width="1.5"/>
+  <text class="chiptxt" x="380" y="290">Server components + routes</text>
+  <text class="chipsub" x="380" y="312">Documents / Facts / Conflicts /</text>
+  <text class="chipsub" x="380" y="330">Normalize / Account views</text>
+  <rect class="chip" x="650" y="258" width="270" height="104" stroke="#bfe3ca" stroke-width="1.5"/>
+  <text class="chiptxt" x="670" y="290">proxy.ts (server-side)</text>
+  <text class="chipsub" x="670" y="312">turns the cookie into a bearer</text>
+  <text class="chipsub" x="670" y="330">header — the browser never</text>
+  <text class="chipsub" x="670" y="348">calls the API directly</text>
+  <rect class="chip" x="940" y="258" width="300" height="104" stroke="#bfe3ca" stroke-width="1.5"/>
+  <text class="chiptxt" x="960" y="290">Recharts</text>
+  <text class="chipsub" x="960" y="312">production charts, KPI tiles;</text>
+  <text class="chipsub" x="960" y="330">system fonts only — no web</text>
+  <text class="chipsub" x="960" y="348">font fetched at runtime</text>
+
+  <line x1="660" y1="380" x2="660" y2="408" stroke="#55617a" stroke-width="2" marker-end="url(#arrow)"/>
+  <text class="note" x="672" y="399">HTTPS · bearer</text>
+
+  <!-- ===== T3 API & Security ===== -->
+  <rect class="tier" x="60" y="412" width="1200" height="164" fill="#fdefe3" stroke="#c9702a" stroke-width="2"/>
+  <text class="tlabel" x="84" y="444">API &amp; Security</text>
+  <text class="tsub" x="84" y="464">FastAPI · SQLAlchemy</text>
+  <text class="tsub" x="84" y="480">Core · explicit SQL</text>
+  <rect class="chip" x="360" y="430" width="270" height="128" stroke="#f0cfa9" stroke-width="1.5"/>
+  <text class="chiptxt" x="380" y="462">Identity</text>
+  <text class="chipsub" x="380" y="484">Argon2id · PyJWT</text>
+  <text class="chipsub" x="380" y="502">tokens carry identity only;</text>
+  <text class="chipsub" x="380" y="520">role &amp; scope read per request</text>
+  <text class="chipsub" x="380" y="538">→ revocation is immediate</text>
+  <rect class="chip" x="650" y="430" width="270" height="128" stroke="#f0cfa9" stroke-width="1.5"/>
+  <text class="chiptxt" x="670" y="462">Row-level scope</text>
+  <text class="chipsub" x="670" y="484">every read requires a scope;</text>
+  <text class="chipsub" x="670" y="502">an out-of-scope fact id is a</text>
+  <text class="chipsub" x="670" y="520">404, never a 403 — enforced</text>
+  <text class="chipsub" x="670" y="538">by an introspection test</text>
+  <rect class="chip" x="940" y="430" width="300" height="128" stroke="#f0cfa9" stroke-width="1.5"/>
+  <text class="chiptxt" x="960" y="462">Append-only audit</text>
+  <text class="chipsub" x="960" y="484">who did what, enforced by a</text>
+  <text class="chipsub" x="960" y="502">PostgreSQL trigger — rows</text>
+  <text class="chipsub" x="960" y="520">cannot be updated or deleted,</text>
+  <text class="chipsub" x="960" y="538">only appended</text>
+
+  <line x1="660" y1="576" x2="660" y2="604" stroke="#55617a" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- ===== T4 Ingestion pipeline & jobs ===== -->
+  <rect class="tier" x="60" y="608" width="1200" height="238" fill="#eef1f6" stroke="#55617a" stroke-width="2"/>
+  <text class="tlabel" x="84" y="640">Pipeline &amp; jobs</text>
+  <text class="tsub" x="84" y="660">three processes,</text>
+  <text class="tsub" x="84" y="676">one container image</text>
+
+  <!-- process chips -->
+  <rect class="chip" x="360" y="626" width="280" height="44" stroke="#c3cbd8" stroke-width="1.5"/>
+  <text class="chiptxt" x="376" y="647">API</text><text class="chipsub" x="376" y="663">uvicorn — mrip.main:app</text>
+  <rect class="chip" x="660" y="626" width="280" height="44" stroke="#c3cbd8" stroke-width="1.5"/>
+  <text class="chiptxt" x="676" y="647">Worker</text><text class="chipsub" x="676" y="663">mrip-worker — SELECT … FOR UPDATE SKIP LOCKED</text>
+  <rect class="chip" x="960" y="626" width="280" height="44" stroke="#c3cbd8" stroke-width="1.5"/>
+  <text class="chiptxt" x="976" y="647">Scheduler</text><text class="chipsub" x="976" y="663">mrip-scheduler — periodic enqueue</text>
+
+  <!-- six-stage chain -->
+  <g>
+    <rect class="chip" x="362" y="700" width="128" height="52" stroke="#c3cbd8" stroke-width="1.5"/>
+    <text class="chiptxt" x="426" y="722" text-anchor="middle">classify</text><text class="chipsub" x="426" y="740" text-anchor="middle">text vs scan</text>
+    <rect class="chip" x="512" y="700" width="128" height="52" stroke="#c3cbd8" stroke-width="1.5"/>
+    <text class="chiptxt" x="576" y="722" text-anchor="middle">digitize</text><text class="chipsub" x="576" y="740" text-anchor="middle">rows + bbox</text>
+    <rect class="chip" x="662" y="700" width="128" height="52" stroke="#c3cbd8" stroke-width="1.5"/>
+    <text class="chiptxt" x="726" y="722" text-anchor="middle">extract</text><text class="chipsub" x="726" y="740" text-anchor="middle">cells → facts</text>
+    <rect class="chip" x="812" y="700" width="128" height="52" stroke="#c3cbd8" stroke-width="1.5"/>
+    <text class="chiptxt" x="876" y="722" text-anchor="middle">normalize</text><text class="chipsub" x="876" y="740" text-anchor="middle">units/periods</text>
+    <rect class="chip" x="962" y="700" width="128" height="52" stroke="#c3cbd8" stroke-width="1.5"/>
+    <text class="chiptxt" x="1026" y="722" text-anchor="middle">validate</text><text class="chipsub" x="1026" y="740" text-anchor="middle">rules + radar</text>
+    <rect class="chip" x="1112" y="700" width="128" height="52" stroke="#2e7d46" stroke-width="1.5"/>
+    <text class="chiptxt" x="1176" y="722" text-anchor="middle">index</text><text class="chipsub" x="1176" y="740" text-anchor="middle">→ ready</text>
+    <line x1="490" y1="726" x2="512" y2="726" stroke="#55617a" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <line x1="640" y1="726" x2="662" y2="726" stroke="#55617a" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <line x1="790" y1="726" x2="812" y2="726" stroke="#55617a" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <line x1="940" y1="726" x2="962" y2="726" stroke="#55617a" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <line x1="1090" y1="726" x2="1112" y2="726" stroke="#55617a" stroke-width="1.5" marker-end="url(#arrow)"/>
+  </g>
+  <text class="note" x="362" y="782">Upload → intake boundary (type by magic number, page cap, encrypted PDF refused, zip-bomb refused) → blob store (SHA-256 = key = identity) → queue.</text>
+  <text class="note" x="362" y="802">Each stage commits its output and its state change in one transaction; a re-run replaces its own output — kill a worker at any instant, the resumed run produces identical rows.</text>
+  <text class="note" x="362" y="822">Refuse rather than guess: every declined cell is counted by reason. A "Total" row produces no fact — storing a total beside its parts double-counts every aggregate.</text>
+
+  <line x1="660" y1="846" x2="660" y2="874" stroke="#55617a" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- ===== T5 Digitization toolkit ===== -->
+  <rect class="tier" x="60" y="878" width="1200" height="104" fill="#e7f5ec" stroke="#2e7d46" stroke-width="2"/>
+  <text class="tlabel" x="84" y="920">Digitization</text>
+  <text class="tsub" x="84" y="940">no native toolchain</text>
+  <rect class="chip" x="360" y="898" width="205" height="64" stroke="#bfe3ca" stroke-width="1.5"/>
+  <text class="chiptxt" x="462" y="926" text-anchor="middle">PyMuPDF</text><text class="chipsub" x="462" y="946" text-anchor="middle">text layer + geometry</text>
+  <rect class="chip" x="585" y="898" width="205" height="64" stroke="#bfe3ca" stroke-width="1.5"/>
+  <text class="chiptxt" x="687" y="926" text-anchor="middle">pdfplumber</text><text class="chipsub" x="687" y="946" text-anchor="middle">table cells</text>
+  <rect class="chip" x="810" y="898" width="205" height="64" stroke="#bfe3ca" stroke-width="1.5"/>
+  <text class="chiptxt" x="912" y="926" text-anchor="middle">openpyxl</text><text class="chipsub" x="912" y="946" text-anchor="middle">spreadsheet cells</text>
+  <rect class="chip" x="1035" y="898" width="205" height="64" stroke="#bfe3ca" stroke-width="1.5"/>
+  <text class="chiptxt" x="1137" y="926" text-anchor="middle">RapidOCR</text><text class="chipsub" x="1137" y="946" text-anchor="middle">ONNX · CPU</text>
+
+  <line x1="660" y1="982" x2="660" y2="1010" stroke="#55617a" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- ===== T6 Store of record ===== -->
+  <rect class="tier" x="60" y="1014" width="1200" height="196" fill="#efe8fb" stroke="#6a3fb0" stroke-width="2"/>
+  <text class="tlabel" x="84" y="1046">Store of record</text>
+  <text class="tsub" x="84" y="1066">PostgreSQL 17</text>
+  <text class="tsub" x="84" y="1082">+ pgvector 0.8.6</text>
+  <text class="tsub" x="84" y="1104">one stateful service —</text>
+  <text class="tsub" x="84" y="1120">not five</text>
+  <rect class="chip" x="360" y="1032" width="280" height="80" stroke="#d3c4ee" stroke-width="1.5"/>
+  <text class="chiptxt" x="380" y="1060">Fact store + evidence</text>
+  <text class="chipsub" x="380" y="1082">facts carry a composite FK to</text>
+  <text class="chipsub" x="380" y="1100">documents(document_id, version)</text>
+  <rect class="chip" x="660" y="1032" width="280" height="80" stroke="#d3c4ee" stroke-width="1.5"/>
+  <text class="chiptxt" x="680" y="1060">Job queue</text>
+  <text class="chipsub" x="680" y="1082">SKIP LOCKED — enqueue is part</text>
+  <text class="chipsub" x="680" y="1100">of the same transaction, no broker</text>
+  <rect class="chip" x="960" y="1032" width="280" height="80" stroke="#d3c4ee" stroke-width="1.5"/>
+  <text class="chiptxt" x="980" y="1060">Search</text>
+  <text class="chipsub" x="980" y="1082">lexical (tsvector) + vector</text>
+  <text class="chipsub" x="980" y="1100">(pgvector) in the same store</text>
+  <rect class="chip" x="360" y="1124" width="880" height="70" stroke="#d3c4ee" stroke-width="1.5"/>
+  <text class="chiptxt" x="380" y="1150">Conflicts are never merged</text>
+  <text class="chipsub" x="380" y="1172">when two documents disagree, both are shown with their pages and a reviewer names the winner — the loser becomes rejected, not superseded. No endpoint averages them.</text>
+
+  <line x1="660" y1="1210" x2="660" y2="1238" stroke="#55617a" stroke-width="2" marker-end="url(#arrow)"/>
+  <text class="note" x="672" y="1230">reads facts, never writes them</text>
+
+  <!-- ===== T7 Local inference ===== -->
+  <rect class="tier" x="60" y="1242" width="1200" height="96" fill="#fce8ee" stroke="#b23a63" stroke-width="2"/>
+  <text class="tlabel" x="84" y="1282">Local inference</text>
+  <text class="tsub" x="84" y="1302">optional · off by default</text>
+  <rect class="chip" x="360" y="1260" width="420" height="62" stroke="#eec4d2" stroke-width="1.5"/>
+  <text class="chiptxt" x="380" y="1288">Ollama + Qwen3 8B (Q4_K_M, Apache-2.0)</text>
+  <text class="chipsub" x="380" y="1308">127.0.0.1:11434 — nothing leaves the host</text>
+  <rect class="chip" x="800" y="1260" width="440" height="62" stroke="#eec4d2" stroke-width="1.5"/>
+  <text class="chiptxt" x="820" y="1288">Never on the figure path</text>
+  <text class="chipsub" x="820" y="1308">a test fails the build if the figure path imports a model client; the model explains figures it was handed, cannot introduce one</text>
+
+  <!-- ===== Deliverables ===== -->
+  <text class="tlabel" x="60" y="1382">The three SIH26023 deliverables</text>
+  <text class="note" x="435" y="1382">— each stands on the built &amp; tested foundation above (ingestion, facts, normalize, validate, conflicts, identity, audit)</text>
+
+  <rect class="tier designed" x="60" y="1398" width="386" height="150" stroke-width="2"/>
+  <rect x="76" y="1414" width="86" height="20" rx="5" fill="#c9702a"/>
+  <text class="badge" x="119" y="1428" fill="#ffffff" text-anchor="middle">DESIGNED</text>
+  <text class="chiptxt" x="76" y="1462">1 · Report generation</text>
+  <text class="chipsub" x="76" y="1486">a published report pins its evidence —</text>
+  <text class="chipsub" x="76" y="1504">every figure records its fact_id and</text>
+  <text class="chipsub" x="76" y="1522">document@version, so it re-renders and</text>
+  <text class="chipsub" x="76" y="1540">diffs a year later. §11</text>
+
+  <rect class="tier designed" x="467" y="1398" width="386" height="150" stroke-width="2"/>
+  <rect x="483" y="1414" width="86" height="20" rx="5" fill="#c9702a"/>
+  <text class="badge" x="526" y="1428" fill="#ffffff" text-anchor="middle">DESIGNED</text>
+  <text class="chiptxt" x="483" y="1462">2 · Word cloud &amp; topics</text>
+  <text class="chipsub" x="483" y="1486">every term is click-through to the pages</text>
+  <text class="chipsub" x="483" y="1504">that produced it, sized by document</text>
+  <text class="chipsub" x="483" y="1522">frequency, built from the caller's access</text>
+  <text class="chipsub" x="483" y="1540">scope. §12 · the index it reads is built</text>
+
+  <rect class="tier designed" x="874" y="1398" width="386" height="150" stroke-width="2"/>
+  <rect x="890" y="1414" width="86" height="20" rx="5" fill="#c9702a"/>
+  <text class="badge" x="933" y="1428" fill="#ffffff" text-anchor="middle">DESIGNED</text>
+  <text class="chiptxt" x="890" y="1462">3 · AI query &amp; response</text>
+  <text class="chipsub" x="890" y="1486">the exact-figure path has no model in it —</text>
+  <text class="chipsub" x="890" y="1504">numeric answers come from SQL over facts;</text>
+  <text class="chipsub" x="890" y="1522">the model writes prose around figures it</text>
+  <text class="chipsub" x="890" y="1540">was handed. §13 · lexical retrieval is built</text>
+
+  <text class="note" x="60" y="1600" font-style="italic">The invariant across all three: a number with no traceable evidence never reaches a user. Corpus: 3,404 documents (3,071 distinct), 11 publishers — see DATASETS.md.</text>
+</svg>
