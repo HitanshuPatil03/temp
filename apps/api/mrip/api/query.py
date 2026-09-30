@@ -27,6 +27,8 @@ def _answer_kind(response: QueryResponse) -> str:
         return "figure"
     if response.comparison is not None:
         return "comparison"
+    if response.narrative is not None:
+        return "narrative"
     if response.discovery is not None:
         return "discovery"
     return "refusal"

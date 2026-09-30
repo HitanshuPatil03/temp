@@ -15,12 +15,30 @@ from fastapi.testclient import TestClient
 from mrip.api.deps import provide_read_only_store, provide_store
 from mrip.auth.scope import SCOPE_ALL, Scope
 from mrip.db import Store
+from mrip.llm import LLMClient, LLMUnavailableError
 from mrip.main import create_app
 from mrip.query.router import classify
 from mrip.query.service import answer
 from mrip.schemas import FactStatus, QueryIntent, RefusalReason, Role
 
 SCOPE = Scope.unrestricted("test suite")
+
+
+class _FakeLLM:
+    """A stand-in for the model runtime, so the prose path is testable offline."""
+
+    def __init__(self, text: str, *, available: bool = True) -> None:
+        self._text = text
+        self._available = available
+        self.prompts: list[tuple[str, str | None]] = []
+
+    @property
+    def available(self) -> bool:
+        return self._available
+
+    def generate(self, prompt: str, *, system: str | None = None) -> str:
+        self.prompts.append((prompt, system))
+        return self._text
 
 
 # --------------------------------------------------------------------- routing
@@ -149,3 +167,61 @@ def test_query_route_answers_and_audits(
 
     # The question is on the audit trail (§9).
     assert any(entry.action == "query" for entry in store.audit.recent(action="query"))
+
+
+# ------------------------------------------------------------------- narrative
+
+
+def test_narrative_grounds_prose_and_drops_invented_numbers(
+    store: Store, make_fact
+) -> None:
+    store.insert_facts([make_fact(status=FactStatus.VALIDATED)])
+    fake = _FakeLLM(
+        "SECL produced 193 MT in FY2024-25. Output then leapt to 999 crore tonnes."
+    )
+    response = answer(store, SCOPE, "why did SECL coal production rise", llm=fake)
+
+    assert response.model_used is True
+    assert response.narrative is not None
+    # The supported figure survives; the invented one takes its sentence with it.
+    assert "193" in response.narrative.prose
+    assert "999" not in response.narrative.prose
+    assert response.narrative.flagged is True
+    assert response.narrative.facts  # the prose is grounded on pinned facts
+    assert fake.prompts  # the model was actually consulted
+
+
+def test_narrative_falls_back_when_model_disabled(store: Store, make_fact) -> None:
+    store.insert_facts([make_fact(status=FactStatus.VALIDATED)])
+    fake = _FakeLLM("ignored", available=False)
+    response = answer(store, SCOPE, "why did SECL coal production rise", llm=fake)
+
+    assert response.model_used is False
+    assert response.narrative is None  # no ungrounded prose
+    assert not fake.prompts  # the model was never consulted
+
+
+def test_narrative_falls_back_when_model_unreachable(store: Store, make_fact) -> None:
+    store.insert_facts([make_fact(status=FactStatus.VALIDATED)])
+
+    class _Boom:
+        available = True
+
+        def generate(self, prompt: str, *, system: str | None = None) -> str:
+            raise LLMUnavailableError("runtime down")
+
+    response = answer(store, SCOPE, "why did SECL coal production rise", llm=_Boom())
+    assert response.model_used is False
+
+
+def test_disabled_client_raises_rather_than_returning_empty() -> None:
+    client = LLMClient(
+        base_url="http://127.0.0.1:11434",
+        model="qwen3:8b",
+        timeout=1.0,
+        thinking=False,
+        enabled=False,
+    )
+    assert client.available is False
+    with pytest.raises(LLMUnavailableError):
+        client.generate("hello")

@@ -52,6 +52,7 @@ __all__ = [  # noqa: RUF022
     "FigureAnswer",
     "ComparisonAnswer",
     "DiscoveryAnswer",
+    "NarrativeAnswer",
     "Refusal",
     "QueryRequest",
     "QueryResponse",
@@ -545,6 +546,22 @@ class DiscoveryAnswer(BaseModel):
     passages: list[Passage]
 
 
+class NarrativeAnswer(BaseModel):
+    """Prose the model wrote *around* figures it was handed.
+
+    ``facts`` are the pinned figures the prose is grounded on and ``passages`` the
+    retrieved context; both were given to the model, which never saw the fact
+    store itself (§13.4). ``flagged`` is set when a sentence was dropped because it
+    carried a numeral present in neither — a figure the model invented rather than
+    one the deterministic layer supplied.
+    """
+
+    prose: str
+    passages: list[Passage] = Field(default_factory=list)
+    facts: list[Fact] = Field(default_factory=list)
+    flagged: bool = False
+
+
 class Refusal(BaseModel):
     """A declined question, with the evidence behind the refusal.
 
@@ -581,4 +598,5 @@ class QueryResponse(BaseModel):
     figure: FigureAnswer | None = None
     comparison: ComparisonAnswer | None = None
     discovery: DiscoveryAnswer | None = None
+    narrative: NarrativeAnswer | None = None
     refusal: Refusal | None = None
