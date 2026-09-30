@@ -38,6 +38,8 @@ __all__ = [  # noqa: RUF022
     "Role",
     "AuthSource",
     "JobState",
+    "QueryIntent",
+    "RefusalReason",
     # models
     "BBox",
     "EvidenceRef",
@@ -45,6 +47,14 @@ __all__ = [  # noqa: RUF022
     "Document",
     "Fact",
     "ConflictGroup",
+    "SeriesPoint",
+    "Passage",
+    "FigureAnswer",
+    "ComparisonAnswer",
+    "DiscoveryAnswer",
+    "Refusal",
+    "QueryRequest",
+    "QueryResponse",
 ]
 
 Probability = Annotated[float, Field(ge=0.0, le=1.0)]
@@ -435,3 +445,140 @@ class ConflictGroup(BaseModel):
         """
         largest = max(abs(f.value) for f in self.facts)
         return self.spread / largest if largest else None
+
+
+# --------------------------------------------------------------------- query
+#
+# The AI query and response system (ARCHITECTURE §13). These types are the
+# contract between the router, the deterministic figure paths, and the API. The
+# invariant they encode: a numeric answer is a stored :class:`Fact` (which cannot
+# exist without its evidence), never a value the router computed on the fly, and a
+# refusal is a structured object carrying the evidence that caused it — not an
+# error string (§13.5).
+
+
+class QueryIntent(StrEnum):
+    """The shape of a question, which decides *whether a model is involved*.
+
+    Classified by deterministic patterns over the normalizers' vocabularies
+    (§13.1). The first three are answered by SQL over facts or by retrieval, with
+    no model client in scope; the last two are the only intents a model touches,
+    and even then only to write prose around figures it was handed.
+    """
+
+    EXACT_FIGURE = "exact_figure"
+    COMPARISON = "comparison"
+    DISCOVERY = "discovery"
+    NARRATIVE = "narrative"
+    DRAFT = "draft"
+
+
+class RefusalReason(StrEnum):
+    """Why a question was declined, as a value the client can branch on.
+
+    Each is rendered as an answer, not raised as an error: "there is an open
+    conflict here" is a true and useful response, and the disagreement travels
+    with it so the reader can act.
+    """
+
+    AMBIGUOUS_UNIT = "ambiguous_unit"
+    OPEN_CONFLICT = "open_conflict"
+    OUT_OF_CORPUS = "out_of_corpus"
+    NO_VALIDATED_FACT = "no_validated_fact"
+
+
+class SeriesPoint(BaseModel):
+    """One entity's total for a metric in one fiscal year.
+
+    The value is a ``SUM`` over the contributing facts, so a point is a summary,
+    not itself a fact. ``fact_count`` says how many figures stand behind it; the
+    facts themselves are one scoped ``/facts`` query away, which is how the
+    summary stays traceable without inlining every row.
+    """
+
+    entity_id: str
+    fiscal_year: str
+    value: float
+    unit: str
+    fact_count: int
+
+
+class Passage(BaseModel):
+    """A retrieved evidence snippet, with the locator that produced it.
+
+    The discovery path returns these rather than prose: every hit points at the
+    document, version and page it came from, so "documents mentioning Gevra" is
+    answered with places to look, not a paraphrase.
+    """
+
+    evidence_id: str
+    document_id: str
+    document_version: int
+    page: int | None = None
+    title: str | None = None
+    filename: str | None = None
+    snippet: str
+    rank: float
+
+
+class FigureAnswer(BaseModel):
+    """A single exact figure: the validated fact that answers the question.
+
+    The fact carries its own :class:`EvidenceRef` and :class:`Confidence`, so the
+    answer is the evidence receipt — there is nothing to cite separately.
+    """
+
+    fact: Fact
+
+
+class ComparisonAnswer(BaseModel):
+    """A metric compared across entities and fiscal years."""
+
+    metric: str
+    unit: str | None = None
+    points: list[SeriesPoint]
+
+
+class DiscoveryAnswer(BaseModel):
+    """Places in the corpus that match the question."""
+
+    passages: list[Passage]
+
+
+class Refusal(BaseModel):
+    """A declined question, with the evidence behind the refusal.
+
+    ``conflict`` accompanies :attr:`RefusalReason.OPEN_CONFLICT` and ``facts`` the
+    ambiguous cases, so the client can show *why* rather than just *that* the
+    system declined.
+    """
+
+    reason: RefusalReason
+    message: str
+    conflict: ConflictGroup | None = None
+    facts: list[Fact] = Field(default_factory=list)
+
+
+class QueryRequest(BaseModel):
+    """A natural-language question over the corpus."""
+
+    question: str = Field(min_length=1, max_length=2000)
+
+
+class QueryResponse(BaseModel):
+    """The envelope every query returns.
+
+    Exactly one of :attr:`figure`, :attr:`comparison`, :attr:`discovery` or
+    :attr:`refusal` is set. :attr:`model_used` records whether a language model
+    was involved in producing this answer — always ``False`` for the figure,
+    comparison and discovery paths, which is the §7 guarantee made visible to the
+    caller rather than merely asserted in a design document.
+    """
+
+    question: str
+    intent: QueryIntent
+    model_used: bool = False
+    figure: FigureAnswer | None = None
+    comparison: ComparisonAnswer | None = None
+    discovery: DiscoveryAnswer | None = None
+    refusal: Refusal | None = None

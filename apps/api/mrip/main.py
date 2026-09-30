@@ -22,7 +22,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from mrip import log
-from mrip.api import auth, documents, facts, normalize, system, uploads
+from mrip.api import auth, documents, facts, normalize, query, system, uploads
 from mrip.api.middleware import RequestContextMiddleware
 from mrip.config import get_settings
 from mrip.db import ping
@@ -94,7 +94,7 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    for module in (system, auth, documents, uploads, facts, normalize):
+    for module in (system, auth, documents, uploads, facts, normalize, query):
         app.include_router(module.router, prefix=API_PREFIX)
     return app
 

@@ -44,15 +44,17 @@ from mrip.auth.tokens import (
     decode_access_token,
 )
 from mrip.config import Settings, get_settings
-from mrip.db import Store, transaction
+from mrip.db import Store, read_only, transaction
 from mrip.schemas import Role
 
 __all__ = [
     "PrincipalDep",
+    "ReadOnlyStoreDep",
     "ScopeDep",
     "SettingsDep",
     "StoreDep",
     "current_principal",
+    "provide_read_only_store",
     "provide_scope",
     "provide_settings",
     "provide_store",
@@ -85,6 +87,18 @@ def provide_store() -> Iterator[Store]:
     after a partial write leaves nothing behind.
     """
     with transaction() as conn:
+        yield Store(conn)
+
+
+def provide_read_only_store() -> Iterator[Store]:
+    """A store the database will not let write, for the figure query path.
+
+    ARCHITECTURE §7 wants "this route only reads" to be enforced, not promised.
+    The exact-figure and comparison paths run against this store, so a stray write
+    on the answer path fails at the database rather than passing review. Auth and
+    audit still use the read-write :func:`provide_store`.
+    """
+    with read_only() as conn:
         yield Store(conn)
 
 
@@ -198,6 +212,7 @@ def require_role(minimum: Role) -> Callable[[Principal], Principal]:
 
 
 StoreDep = Annotated[Store, Depends(provide_store)]
+ReadOnlyStoreDep = Annotated[Store, Depends(provide_read_only_store)]
 SettingsDep = Annotated[Settings, Depends(provide_settings)]
 PrincipalDep = Annotated[Principal, Depends(current_principal)]
 ScopeDep = Annotated[Scope, Depends(provide_scope)]
