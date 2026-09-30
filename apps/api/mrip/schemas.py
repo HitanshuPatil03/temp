@@ -40,6 +40,7 @@ __all__ = [  # noqa: RUF022
     "JobState",
     "QueryIntent",
     "RefusalReason",
+    "ReportState",
     # models
     "BBox",
     "EvidenceRef",
@@ -56,6 +57,10 @@ __all__ = [  # noqa: RUF022
     "Refusal",
     "QueryRequest",
     "QueryResponse",
+    "PinnedFigure",
+    "MissingFigure",
+    "ReportManifest",
+    "FigureDelta",
 ]
 
 Probability = Annotated[float, Field(ge=0.0, le=1.0)]
@@ -600,3 +605,93 @@ class QueryResponse(BaseModel):
     discovery: DiscoveryAnswer | None = None
     narrative: NarrativeAnswer | None = None
     refusal: Refusal | None = None
+
+
+# -------------------------------------------------------------------- reports
+#
+# Automated report generation (ARCHITECTURE §11). The load-bearing idea is that a
+# published report *pins its evidence*: every figure records the fact_id and the
+# document@version it came from, so the same report re-renders a year later with
+# the figures as approved, and diffs against what the corpus says now. A required
+# figure with no validated fact fails the render loudly, naming the field — never
+# a blank, never a model-filled number (§11.2).
+
+
+class ReportState(StrEnum):
+    """A report version's place in the publish lifecycle (§11.3)."""
+
+    DRAFT = "draft"
+    IN_REVIEW = "in_review"
+    APPROVED = "approved"
+    PUBLISHED = "published"
+
+
+class PinnedFigure(BaseModel):
+    """One resolved figure, with the evidence it pins.
+
+    ``fact_id`` and ``document_id@document_version`` are the pin: they identify
+    the exact fact and the exact source version behind the number, so the figure
+    can be reproduced independently of whatever the corpus later becomes.
+    """
+
+    label: str
+    entity_id: str
+    metric: str
+    period_label: str
+    fact_id: str
+    value: float
+    unit: str
+    raw_value: float
+    raw_unit: str
+    document_id: str
+    document_version: int
+    locator: str
+
+
+class MissingFigure(BaseModel):
+    """A field that could not be pinned, and why (a structured refusal reason)."""
+
+    label: str
+    entity_id: str
+    metric: str
+    period_label: str
+    reason: RefusalReason
+    message: str
+
+
+class ReportManifest(BaseModel):
+    """The pinned-evidence record of one report render.
+
+    ``missing_required`` being non-empty means the render *failed*: a required
+    figure had no validated fact, and §11.2 forbids emitting the report anyway.
+    """
+
+    report_id: str
+    template_id: str
+    template_version: int
+    title: str
+    generated_at: datetime
+    state: ReportState = ReportState.DRAFT
+    figures: list[PinnedFigure] = Field(default_factory=list)
+    missing_required: list[MissingFigure] = Field(default_factory=list)
+    missing_optional: list[MissingFigure] = Field(default_factory=list)
+
+    @property
+    def complete(self) -> bool:
+        """Whether every required figure was pinned — the render may be emitted."""
+        return not self.missing_required
+
+
+class FigureDelta(BaseModel):
+    """How one pinned figure compares to what the corpus says now (§11.3 diff)."""
+
+    label: str
+    entity_id: str
+    metric: str
+    period_label: str
+    approved_value: float
+    approved_document_version: int
+    current_value: float | None = None
+    current_document_version: int | None = None
+    changed: bool = False
+    note: str = ""
