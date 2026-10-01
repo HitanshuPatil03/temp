@@ -37,6 +37,7 @@ from mrip.schemas import (
     ExtractionMethod,
     FactStatus,
     JobState,
+    ReportState,
     ReviewState,
     Role,
     Sensitivity,
@@ -47,10 +48,12 @@ __all__ = [
     "audit_log",
     "conflict_facts",
     "conflicts",
+    "document_keyphrases",
     "documents",
     "evidence",
     "facts",
     "jobs",
+    "reports",
     "user_scopes",
     "users",
 ]
@@ -543,7 +546,111 @@ audit_log = sa.Table(
 )
 
 
-# -------------------------------------------------------------------------- jobs
+# ---------------------------------------------------------------------- reports
+
+#: A generated report, and the manifest that pins its evidence (ARCHITECTURE
+#: §8.5, §11.3). The manifest is stored whole as JSONB rather than shredded into
+#: figure rows: it is read back as one document, it is never queried field by
+#: field, and keeping it verbatim is what lets a two-year-old report re-render
+#: *exactly* as approved. The columns beside it are the ones worth indexing —
+#: scope, lifecycle and authorship.
+#:
+#: ``entity_id`` is duplicated out of the manifest deliberately. Every read in
+#: this system is scoped, and a scope filter cannot run against a JSONB field
+#: without giving up the index.
+reports = sa.Table(
+    "reports",
+    METADATA,
+    sa.Column("report_id", _ID, primary_key=True),
+    sa.Column("template_id", sa.Text, nullable=False),
+    sa.Column("template_version", sa.Integer, nullable=False),
+    sa.Column("title", sa.Text, nullable=False),
+    #: What the report is *about* — the scope key. Not nullable: a report nobody
+    #: can be scoped against is a report that leaks.
+    sa.Column("entity_id", sa.Text, nullable=False),
+    sa.Column("period_label", sa.Text, nullable=False),
+    sa.Column(
+        "state", enum_col(ReportState), nullable=False, server_default=sa.text("'draft'")
+    ),
+    #: The pinned-evidence manifest: every fact_id and document@version behind
+    #: every figure. This is the reproducibility guarantee, stored.
+    sa.Column("manifest", pg.JSONB, nullable=False),
+    sa.Column("generated_at", TS, nullable=False, server_default=_NOW),
+    sa.Column(
+        "generated_by",
+        _ID,
+        sa.ForeignKey("users.user_id", ondelete="SET NULL"),
+        nullable=True,
+    ),
+    #: Who approved it. §11.3 — an approval with no approver is not an approval.
+    sa.Column(
+        "approved_by",
+        _ID,
+        sa.ForeignKey("users.user_id", ondelete="SET NULL"),
+        nullable=True,
+    ),
+    sa.Column("approved_at", TS, nullable=True),
+    sa.Column("published_at", TS, nullable=True),
+    sa.Column("updated_at", TS, nullable=False, server_default=_NOW),
+    # An approval is a person and a time together, or neither. The same shape as
+    # the conflict table's resolution check, for the same reason.
+    sa.CheckConstraint(
+        "(approved_by IS NULL) = (approved_at IS NULL)",
+        name="approval_is_all_or_nothing",
+    ),
+    # Published and approved are not independent: nothing is published that was
+    # not first approved by someone.
+    sa.CheckConstraint(
+        "published_at IS NULL OR approved_at IS NOT NULL",
+        name="published_implies_approved",
+    ),
+    sa.CheckConstraint("template_version >= 1", name="template_version_positive"),
+    sa.Index("ix_reports_entity_id", "entity_id"),
+    sa.Index("ix_reports_state", "state"),
+    sa.Index("ix_reports_generated_at", "generated_at"),
+)
+
+
+# ------------------------------------------------------------------ keyphrases
+
+#: Deterministic keyphrases per document version (ARCHITECTURE §12.1).
+#:
+#: Stored rather than computed on read, so the word cloud is a table read and not
+#: a scan of the whole evidence corpus — and so the same corpus produces the same
+#: cloud twice, which is what lets a reviewer tell a data change from a code
+#: change.
+#:
+#: ``score`` is TF-IDF and ranks terms *within* a document. The cloud does not
+#: size by it: §12.2 sizes by how many documents use a term, which is a
+#: ``COUNT(DISTINCT document_id)`` over this table. ``occurrences`` keeps the raw
+#: count for the hover, because the two numbers answer different questions.
+document_keyphrases = sa.Table(
+    "document_keyphrases",
+    METADATA,
+    sa.Column("document_id", _ID, primary_key=True),
+    sa.Column("document_version", sa.Integer, primary_key=True),
+    sa.Column("term", sa.Text, primary_key=True),
+    sa.Column("occurrences", sa.Integer, nullable=False),
+    sa.Column("score", sa.Double, nullable=False),
+    sa.Column("computed_at", TS, nullable=False, server_default=_NOW),
+    sa.ForeignKeyConstraint(
+        ["document_id", "document_version"],
+        ["documents.document_id", "documents.version"],
+        name="document_version",
+        # CASCADE, unlike evidence and facts. A keyphrase is a derived index
+        # entry, not evidence: it can be recomputed from the document at any
+        # time, so it must not be the thing that blocks a deletion.
+        ondelete="CASCADE",
+    ),
+    sa.CheckConstraint("occurrences >= 1", name="occurrences_positive"),
+    sa.CheckConstraint("score >= 0", name="score_nonnegative"),
+    # The cloud groups by term across documents; the drill-through goes the other
+    # way, from a term to the documents that used it. Both are this index.
+    sa.Index("ix_document_keyphrases_term", "term"),
+)
+
+
+# ----------------------------------------------------------------------- jobs
 
 #: The work queue. Claimed with ``SELECT … FOR UPDATE SKIP LOCKED``, which is why
 #: there is no Redis in this architecture: enqueueing a job is part of the same

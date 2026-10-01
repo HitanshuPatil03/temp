@@ -11,6 +11,7 @@
 import {
   FileText,
   GitCompareArrows,
+  Hash,
   LayoutDashboard,
   LogOut,
   MessageSquare,
@@ -42,6 +43,13 @@ const NAV = [
     icon: Ruler,
     hint: "Units, periods, entities",
   },
+  {
+    href: "/reports",
+    label: "Reports",
+    icon: FileText,
+    hint: "Pinned-evidence output",
+  },
+  { href: "/topics", label: "Topics", icon: Hash, hint: "Word cloud, indexed" },
 ] as const;
 
 function describeScope(user: CurrentUser): string {

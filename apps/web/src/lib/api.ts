@@ -11,18 +11,24 @@
  */
 
 import type {
+  CloudTerm,
   Comparability,
   ConflictGroup,
   DashboardSummary,
   EvidenceSpan,
   Fact,
+  FigureDelta,
   Health,
   MTConvention,
   MripDocument,
   NormalizedPeriod,
   NormalizedQuantity,
+  ReportManifest,
+  ReportState,
   ResolvedEntity,
   SeriesPoint,
+  TermDocument,
+  TermPrevalence,
 } from "./types";
 
 export class ApiError extends Error {
@@ -130,6 +136,18 @@ export const keys = {
     ),
   entity: (q: string) =>
     withQuery("/normalize/entity", { q }).replace(/^\/api/, ""),
+  reports: (query?: Query) => withQuery("/reports", query).replace(/^\/api/, ""),
+  report: (id: string) => `/reports/${id}`,
+  reportDiff: (id: string) => `/reports/${id}/diff`,
+  cloud: (query?: Query) =>
+    withQuery("/topics/cloud", query).replace(/^\/api/, ""),
+  termDocuments: (term: string, query?: Query) =>
+    withQuery(`/topics/${encodeURIComponent(term)}/documents`, query).replace(
+      /^\/api/,
+      "",
+    ),
+  termPrevalence: (term: string) =>
+    `/topics/${encodeURIComponent(term)}/prevalence`,
 };
 
 export const api = {
@@ -176,6 +194,49 @@ export const api = {
     }),
   entity: (q: string) =>
     request<ResolvedEntity>("/normalize/entity", { query: { q } }),
+
+  // ------------------------------------------------------------- reports
+  reports: (query?: Query) => request<ReportManifest[]>("/reports", { query }),
+  report: (id: string) => request<ReportManifest>(`/reports/${id}`),
+  reportDiff: (id: string) => request<FigureDelta[]>(`/reports/${id}/diff`),
+
+  /** Generate and store a report. 201 even when incomplete: a manifest naming
+   *  what it could not pin is a more useful answer than an error. */
+  generateReport: (entity: string, period: string, templateId?: string) =>
+    request<ReportManifest>("/reports", {
+      method: "POST",
+      body: JSON.stringify({
+        entity,
+        period,
+        template_id: templateId ?? "production-summary",
+      }),
+    }),
+
+  /** Move a report through draft → in_review → approved → published. */
+  transitionReport: (id: string, state: ReportState, note?: string) =>
+    request<ReportManifest>(`/reports/${id}/transition`, {
+      method: "POST",
+      body: JSON.stringify({ state, note: note || null }),
+    }),
+
+  /** The download is a file, not JSON — handled outside `request`. */
+  reportDownloadUrl: (id: string, fmt: "md" | "docx" | "xlsx" | "pptx") =>
+    `/api/reports/${id}/download?fmt=${fmt}`,
+
+  // -------------------------------------------------------------- topics
+  cloud: (query?: Query) => request<CloudTerm[]>("/topics/cloud", { query }),
+  termDocuments: (term: string, query?: Query) =>
+    request<TermDocument[]>(`/topics/${encodeURIComponent(term)}/documents`, {
+      query,
+    }),
+  termPrevalence: (term: string) =>
+    request<TermPrevalence[]>(`/topics/${encodeURIComponent(term)}/prevalence`),
+
+  extractTopics: () =>
+    request<{ documents: number; terms_written: number; terms_in_scope: number }>(
+      "/topics/extract",
+      { method: "POST" },
+    ),
 };
 
 // ------------------------------------------------------------------- query (ARCHITECTURE 13)

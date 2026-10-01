@@ -61,6 +61,8 @@ __all__ = [  # noqa: RUF022
     "MissingFigure",
     "ReportManifest",
     "FigureDelta",
+    "CloudTerm",
+    "TermDocument",
 ]
 
 Probability = Annotated[float, Field(ge=0.0, le=1.0)]
@@ -695,3 +697,39 @@ class FigureDelta(BaseModel):
     current_document_version: int | None = None
     changed: bool = False
     note: str = ""
+
+
+# --------------------------------------------------------------------- topics
+#
+# Word cloud and topic identification (ARCHITECTURE §12). The load-bearing idea
+# is that a term is an *index entry*, not decoration: every one reaches the
+# documents and pages that produced it. Hence two types rather than one — the
+# cloud point, and what a click on it resolves to.
+
+
+class CloudTerm(BaseModel):
+    """One term in the word cloud.
+
+    ``document_count`` is the size on screen and ``occurrences`` is the hover
+    (§12.2): a term is big because many documents use it, not because one
+    repetitive annexure repeats it. Keeping both is the point — collapsing them
+    would let boilerplate dominate the corpus.
+    """
+
+    term: str
+    document_count: int = Field(ge=1, description="Documents using the term — the size")
+    occurrences: int = Field(ge=1, description="Raw count across those documents")
+    score: float = Field(ge=0.0, description="Best TF-IDF score the term achieved")
+
+
+class TermDocument(BaseModel):
+    """A document a cloud term reaches — the click-through target (§12.3)."""
+
+    document_id: str
+    document_version: int
+    title: str | None = None
+    filename: str | None = None
+    fiscal_year: str | None = None
+    doc_class: str | None = None
+    occurrences: int
+    score: float

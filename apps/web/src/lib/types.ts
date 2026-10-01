@@ -312,3 +312,100 @@ export interface QueryResponse {
   narrative: NarrativeAnswer | null;
   refusal: Refusal | null;
 }
+
+// ----------------------------------------------------------- reports (ARCHITECTURE 11)
+
+export type ReportState = "draft" | "in_review" | "approved" | "published";
+
+/**
+ * One resolved figure and the evidence it pins. `fact_id` plus
+ * `document_id@document_version` is the pin: it is what lets the same report
+ * re-render a year later with the figures as approved.
+ */
+export interface PinnedFigure {
+  label: string;
+  entity_id: string;
+  metric: string;
+  period_label: string;
+  fact_id: string;
+  value: number;
+  unit: string;
+  raw_value: number;
+  raw_unit: string;
+  document_id: string;
+  document_version: number;
+  locator: string;
+}
+
+/** A field that could not be pinned, carrying the structured reason why. */
+export interface MissingFigure {
+  label: string;
+  entity_id: string;
+  metric: string;
+  period_label: string;
+  reason: RefusalReason;
+  message: string;
+}
+
+/**
+ * The stored record of one report render. `missing_required` being non-empty
+ * means the report will not render — a blank where a required number should be
+ * is the one output this system must never produce.
+ */
+export interface ReportManifest {
+  report_id: string;
+  template_id: string;
+  template_version: number;
+  title: string;
+  generated_at: string;
+  state: ReportState;
+  figures: PinnedFigure[];
+  missing_required: MissingFigure[];
+  missing_optional: MissingFigure[];
+}
+
+/** How one pinned figure compares to what the corpus says now. */
+export interface FigureDelta {
+  label: string;
+  entity_id: string;
+  metric: string;
+  period_label: string;
+  approved_value: number;
+  approved_document_version: number;
+  current_value: number | null;
+  current_document_version: number | null;
+  changed: boolean;
+  note: string;
+}
+
+// ------------------------------------------------------------ topics (ARCHITECTURE 12)
+
+/**
+ * One term in the word cloud. `document_count` is the size on screen and
+ * `occurrences` the hover: a term is big because many documents use it, not
+ * because one repetitive annexure repeats it.
+ */
+export interface CloudTerm {
+  term: string;
+  document_count: number;
+  occurrences: number;
+  score: number;
+}
+
+/** A document a cloud term reaches — what makes the cloud an index. */
+export interface TermDocument {
+  document_id: string;
+  document_version: number;
+  title: string | null;
+  filename: string | null;
+  fiscal_year: string | null;
+  doc_class: string | null;
+  occurrences: number;
+  score: number;
+}
+
+/** One point of a term's year-on-year prevalence. */
+export interface TermPrevalence {
+  fiscal_year: string;
+  document_count: number;
+}

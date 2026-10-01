@@ -29,6 +29,8 @@ from mrip.db.repositories.documents import (
     new_id,
 )
 from mrip.db.repositories.facts import FactRepository
+from mrip.db.repositories.keyphrases import KeyphraseRepository
+from mrip.db.repositories.reports import ReportRepository
 from mrip.db.repositories.users import AuditRepository, UserRepository
 from mrip.db.tables import METADATA
 from mrip.schemas import ConflictGroup, Document, DocumentState, Fact, FactStatus
@@ -48,6 +50,8 @@ class Store:
         self.conflicts = ConflictRepository(conn)
         self.users = UserRepository(conn)
         self.audit = AuditRepository(conn)
+        self.reports = ReportRepository(conn)
+        self.keyphrases = KeyphraseRepository(conn)
 
     @property
     def settings(self) -> Settings:

@@ -38,10 +38,13 @@ FIGURE_PATH = (
     "mrip/facts",
     "mrip/db",
     "mrip/normalize",
+    "mrip/topics",
     "mrip/validate",
     "mrip/query/exact.py",
     "mrip/query/compare.py",
     "mrip/reports/render.py",
+    "mrip/reports/writers.py",
+    "mrip/reports/generate.py",
 )
 
 #: Import names that mean "a generative model is reachable from here".
