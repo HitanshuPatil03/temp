@@ -247,3 +247,68 @@ export interface ResolvedEntity {
   score: number;
   needs_review: boolean;
 }
+
+// ------------------------------------------------------------ query (ARCHITECTURE 13)
+
+export type QueryIntent =
+  | "exact_figure"
+  | "comparison"
+  | "discovery"
+  | "narrative"
+  | "draft";
+
+export type RefusalReason =
+  | "ambiguous_unit"
+  | "open_conflict"
+  | "out_of_corpus"
+  | "no_validated_fact";
+
+export interface Passage {
+  evidence_id: string;
+  document_id: string;
+  document_version: number;
+  page: number | null;
+  title: string | null;
+  filename: string | null;
+  snippet: string;
+  rank: number;
+}
+
+export interface FigureAnswer {
+  fact: Fact;
+}
+
+export interface ComparisonAnswer {
+  metric: string;
+  unit: string | null;
+  points: SeriesPoint[];
+}
+
+export interface DiscoveryAnswer {
+  passages: Passage[];
+}
+
+export interface NarrativeAnswer {
+  prose: string;
+  passages: Passage[];
+  facts: Fact[];
+  flagged: boolean;
+}
+
+export interface Refusal {
+  reason: RefusalReason;
+  message: string;
+  conflict: ConflictGroup | null;
+  facts: Fact[];
+}
+
+export interface QueryResponse {
+  question: string;
+  intent: QueryIntent;
+  model_used: boolean;
+  figure: FigureAnswer | null;
+  comparison: ComparisonAnswer | null;
+  discovery: DiscoveryAnswer | null;
+  narrative: NarrativeAnswer | null;
+  refusal: Refusal | null;
+}

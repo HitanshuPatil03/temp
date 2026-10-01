@@ -15,6 +15,7 @@ returns a plausible wrong number is worse than one that is visibly down.
 
 from __future__ import annotations
 
+import threading
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -45,6 +46,17 @@ is never collapsed into one score — the weakest stage is the honest headline.
 """.strip()
 
 
+def _warm_llm_background() -> None:
+    """Load the model so the first query does not pay cold-start. Best-effort."""
+    try:
+        from mrip.config import get_settings as _gs
+        from mrip.llm import client_from_settings
+
+        client_from_settings(_gs()).warm()
+    except Exception:  # noqa: S110
+        pass
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Verify the environment before accepting traffic, and release it after."""
@@ -65,6 +77,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         schema=version.describe(),
         blob_dir=str(settings.blob_dir),
     )
+    # Warm the local model in the background — don't block startup on Ollama.
+    # A cold model is slow, not broken; the first narrative query will just
+    # take longer if this hasn't finished.
+    if settings.llm_enabled:
+        threading.Thread(target=_warm_llm_background, daemon=True).start()
     yield
     # The engine's lifetime belongs to the process, not to the application
     # object. Disposing it here would also tear down a pool that a test — which

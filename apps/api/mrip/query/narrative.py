@@ -1,19 +1,15 @@
 """The narrative and draft paths: prose written *around* figures, never over them.
 
-This is the only query path that calls a model, and it does so under §13.4's
+This is the only query path that calls a model, and it does so under 13.4's
 constraints: the model is handed retrieved passages and pinned facts and nothing
-else — no fact store, no connection, no tool. Its output is then checked numeral
-by numeral against those pinned numbers, and any sentence carrying a figure that
-was not supplied is dropped and the answer flagged. A model cannot introduce a
-citation or a number here; it can only arrange the ones it was given.
-
-If the model runtime is unavailable, this raises :class:`~mrip.llm.LLMUnavailableError`
-and the service falls back to cited passages — degraded, but never ungrounded.
+else. Its output is checked numeral by numeral; any sentence with an unsupplied
+figure is dropped and flagged.
 """
 
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
 from typing import TYPE_CHECKING
 
 from mrip.llm import LLMClient
@@ -32,7 +28,7 @@ if TYPE_CHECKING:
     from mrip.db.store import Store
     from mrip.query.router import RoutedQuery
 
-__all__ = ["answer_narrative"]
+__all__ = ["answer_narrative", "answer_narrative_stream"]
 
 _MAX_PASSAGES = 6
 _MAX_FACTS = 12
@@ -52,7 +48,6 @@ _DRAFT_SYSTEM = (
     "suitable for a parliamentary answer."
 )
 
-# A numeric literal: digits with optional grouping commas, decimal, and percent.
 _NUMBER = re.compile(r"\d[\d,]*(?:\.\d+)?%?")
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
 
@@ -70,13 +65,6 @@ def _close(a: float, b: float) -> bool:
 
 
 def _allowed_numbers(facts: list[Fact], passages: list[Passage]) -> list[float]:
-    """Every number the model was given: pinned fact values and passage numerals.
-
-    Both the FACTS and the PASSAGES are handed to the model, so a numeral drawn
-    from either is grounded. Anything else in the output was invented. Period
-    labels (``FY2024-25``) contribute their numbers too — a year or fiscal range
-    the fact carries is context the model may legitimately restate.
-    """
     allowed: list[float] = []
     for fact in facts:
         allowed.extend((fact.value, fact.raw_value))
@@ -99,14 +87,12 @@ def _supported(token: str, allowed: list[float]) -> bool:
     value = _as_float(token)
     if value is None:
         return True
-    # A bare four-digit year is context, not a reported figure.
     if token.isdigit() and len(token) == 4 and 1900 <= value <= 2099:
         return True
     return any(_close(value, candidate) for candidate in allowed)
 
 
 def _verify(prose: str, allowed: list[float]) -> tuple[str, bool]:
-    """Drop any sentence carrying a numeral not among the given numbers."""
     kept: list[str] = []
     flagged = False
     for sentence in _SENTENCE_SPLIT.split(prose.strip()):
@@ -141,14 +127,10 @@ def _build_prompt(question: str, facts: list[Fact], passages: list[Passage]) -> 
     return "\n".join(lines)
 
 
-def answer_narrative(
-    store: Store, scope: Scope, routed: RoutedQuery, llm: LLMClient
-) -> QueryResponse:
-    """Write prose grounded in retrieved passages and pinned facts.
-
-    Raises :class:`~mrip.llm.LLMUnavailableError` if the runtime is off or unreachable;
-    the caller falls back to cited passages.
-    """
+def _gather_evidence(
+    store: Store, scope: Scope, routed: RoutedQuery
+) -> tuple[list[Fact], list[Passage]] | None:
+    """Retrieve evidence or return None when nothing grounds the question."""
     hits = store.evidence.search(routed.question, scope, limit=_MAX_PASSAGES)
     passages = [
         Passage(
@@ -163,7 +145,6 @@ def answer_narrative(
         )
         for hit in hits
     ]
-
     facts: list[Fact] = []
     if routed.slots.entity_id and routed.slots.metric_key:
         facts = store.facts.query(
@@ -172,8 +153,16 @@ def answer_narrative(
             metric=routed.slots.metric_key,
             limit=_MAX_FACTS,
         )
-
     if not passages and not facts:
+        return None
+    return facts, passages
+
+
+def answer_narrative(
+    store: Store, scope: Scope, routed: RoutedQuery, llm: LLMClient
+) -> QueryResponse:
+    hits = _gather_evidence(store, scope, routed)
+    if hits is None:
         return QueryResponse(
             question=routed.question,
             intent=routed.intent,
@@ -183,11 +172,10 @@ def answer_narrative(
                 message="Nothing in your corpus grounds an answer to this question.",
             ),
         )
-
+    facts, passages = hits
     system = _DRAFT_SYSTEM if routed.intent is QueryIntent.DRAFT else _SYSTEM
     prose = llm.generate(_build_prompt(routed.question, facts, passages), system=system)
     cleaned, flagged = _verify(prose, _allowed_numbers(facts, passages))
-
     return QueryResponse(
         question=routed.question,
         intent=routed.intent,
@@ -196,3 +184,32 @@ def answer_narrative(
             prose=cleaned, passages=passages, facts=facts, flagged=flagged
         ),
     )
+
+
+def answer_narrative_stream(
+    store: Store, scope: Scope, routed: RoutedQuery, llm: LLMClient
+) -> tuple[list[Fact], list[Passage], str | None, Iterator[str]]:
+    """Prepare evidence and return (facts, passages, refusal_reason, token_iter).
+
+    If nothing grounds the question, token_iter is empty and refusal_reason is set.
+    The caller yields tokens and runs _verify after — keeps numeral checking intact.
+    """
+    hits = _gather_evidence(store, scope, routed)
+    if hits is None:
+        return (
+            [],
+            [],
+            "Nothing in your corpus grounds an answer to this question.",
+            iter(()),
+        )
+    facts, passages = hits
+    system = _DRAFT_SYSTEM if routed.intent is QueryIntent.DRAFT else _SYSTEM
+    prompt = _build_prompt(routed.question, facts, passages)
+    return facts, passages, None, llm.generate_stream(prompt, system=system)
+
+
+def verify_prose(
+    prose: str, facts: list[Fact], passages: list[Passage]
+) -> tuple[str, bool]:
+    """Public verifier for the streaming path."""
+    return _verify(prose, _allowed_numbers(facts, passages))

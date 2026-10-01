@@ -13,6 +13,7 @@ import {
   GitCompareArrows,
   LayoutDashboard,
   LogOut,
+  MessageSquare,
   Ruler,
   ShieldCheck,
   Table2,
@@ -26,6 +27,7 @@ import { cn } from "@/lib/utils";
 
 const NAV = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard, hint: "Headline counts" },
+  { href: "/ask", label: "Ask", icon: MessageSquare, hint: "Evidence-first answers" },
   { href: "/documents", label: "Documents", icon: FileText, hint: "Ingested sources" },
   { href: "/facts", label: "Facts", icon: Table2, hint: "Extracted figures" },
   {

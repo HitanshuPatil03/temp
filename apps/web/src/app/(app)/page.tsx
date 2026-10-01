@@ -16,6 +16,7 @@ import {
   FileText,
   GitCompareArrows,
   Layers,
+  MessageSquare,
   ShieldCheck,
   Table2,
 } from "lucide-react";
@@ -71,6 +72,15 @@ export default function DashboardPage() {
       <PageHeader
         title="Dashboard"
         description="Corpus state and outstanding review work. Every figure below is traceable to a document, page and cell — follow any number to its source."
+        actions={
+          <Link
+            href="/ask"
+            className="inline-flex items-center gap-2 rounded-md bg-series-1 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-blue-550"
+          >
+            <MessageSquare className="size-3.5" aria-hidden />
+            Ask the corpus
+          </Link>
+        }
       />
 
       <main className="min-w-0 flex-1 space-y-6 px-8 py-6">

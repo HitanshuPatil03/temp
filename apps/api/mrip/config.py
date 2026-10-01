@@ -132,6 +132,18 @@ class Settings(BaseSettings):
     #: With the model runtime disabled, narrative answers are unavailable and every
     #: deterministic path must still work. CI runs the suite both ways.
     llm_enabled: bool = True
+    #: Keep the model resident so a second question does not pay the load cost.
+    #: Ollama evicts after this idle period; ``5m`` is long enough for a demo
+    #: conversation and short enough not to pin VRAM forever on a shared host.
+    llm_keep_alive: str = "5m"
+    #: Cap output length. Narrative answers summarise already-computed figures, so
+    #: 512 tokens is ample; the default Ollama limit is unbounded and a rambling
+    #: model can otherwise burn 10 s on tokens nobody reads.
+    llm_num_predict: int = Field(default=512, ge=16, le=4096)
+    #: Context window for the prompt. 2048 covers FACTS (12) + PASSAGES (6) with
+    #: headroom; the model's 32K window is wasteful here and slows the prefill.
+    llm_num_ctx: int = Field(default=2048, ge=512, le=32768)
+    llm_temperature: float = Field(default=0.2, ge=0.0, le=2.0)
 
     @field_validator("data_dir", "blob_dir", "parquet_dir")
     @classmethod

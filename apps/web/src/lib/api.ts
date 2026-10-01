@@ -177,3 +177,95 @@ export const api = {
   entity: (q: string) =>
     request<ResolvedEntity>("/normalize/entity", { query: { q } }),
 };
+
+// ------------------------------------------------------------------- query (ARCHITECTURE 13)
+//
+// POST /api/query is the answer for every intent, non-streaming.
+// POST /api/query/stream is narrative/draft with SSE: meta -> token* -> done.
+// api.ask is the unified entry the Ask page uses: streaming prose, json fallback.
+
+import type { Passage, QueryResponse } from "./types";
+
+export type StreamEvent =
+  | { event: "meta"; data: { intent: string; facts: Fact[]; passages: Passage[] } }
+  | { event: "token"; data: { t: string } }
+  | { event: "done"; data: { prose: string; flagged: boolean } }
+  | { event: "error"; data: { reason: string; message: string } };
+
+export async function query(question: string): Promise<QueryResponse> {
+  return request<QueryResponse>("/query", {
+    method: "POST",
+    body: JSON.stringify({ question }),
+  });
+}
+
+export async function* queryStream(question: string): AsyncGenerator<StreamEvent> {
+  const res = await fetch("/api/query/stream", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ question }),
+  });
+
+  const ctype = res.headers.get("content-type") ?? "";
+
+  // Non-prose and refusal branches return JSON from /query/stream — surface as
+  // terminal events so the Ask page has one consumer, not two.
+  if (ctype.includes("application/json")) {
+    const body: unknown = await res.json();
+    if (!res.ok) throw new ApiError(res.status, readDetail(body, res.status));
+    yield { event: "meta", data: body as unknown as StreamEvent["data"] } as StreamEvent;
+    yield { event: "done", data: { prose: "", flagged: false } } as StreamEvent;
+    return;
+  }
+
+  if (!res.ok || !res.body) {
+    let detail = `Request failed (${res.status})`;
+    try {
+      const b: unknown = await res.json();
+      detail = readDetail(b, res.status);
+    } catch {
+      /* keep default */
+    }
+    throw new ApiError(res.status, detail);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+
+    // SSE frames are "event: <name>\ndata: <json>\n\n"
+    let idx: number;
+    while ((idx = buf.indexOf("\n\n")) !== -1) {
+      const frame = buf.slice(0, idx);
+      buf = buf.slice(idx + 2);
+      const eventLine = frame.split("\n").find((l) => l.startsWith("event:"));
+      const dataLine = frame.split("\n").find((l) => l.startsWith("data:"));
+      if (!eventLine || !dataLine) continue;
+      const event = eventLine.slice(6).trim() as StreamEvent["event"];
+      try {
+        const data = JSON.parse(dataLine.slice(5).trim()) as StreamEvent["data"];
+        yield { event, data } as StreamEvent;
+      } catch {
+        /* malformed frame — skip */
+      }
+    }
+  }
+}
+
+export type AskResult =
+  | { kind: "stream"; events: AsyncGenerator<StreamEvent> }
+  | { kind: "json"; data: QueryResponse };
+
+export async function ask(
+  question: string,
+  opts?: { stream?: boolean },
+): Promise<AskResult> {
+  const useStream = opts?.stream ?? true;
+  if (!useStream) return { kind: "json", data: await query(question) };
+  return { kind: "stream", events: queryStream(question) };
+}
