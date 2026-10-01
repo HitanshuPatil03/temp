@@ -220,6 +220,7 @@ ARCHITECTURE §13.
 | 4.7 | Refusal path — ambiguous unit, open conflict, out of corpus, no validated fact | ✅ Structured responses carrying the evidence that caused them, rendered as answers rather than errors |
 | 4.8 | Evidence panel: answer → source page, region highlighted | 🔄 citations resolve to document, page, table and cell; the raster highlight waits on the page cache (2.4) |
 | 4.9 | Gold query set (50+ labelled) + citation-accuracy KPI in CI | ⬜ blocked on the same ground truth as 3.6 |
+| 4.10 | **Suggestions from the corpus**, not a fixed example list | ✅ `/query/suggestions` offers only questions the corpus can answer, scope-aware, prose intents gated on the model being reachable — a chip never leads to a refusal the user cannot distinguish from a broken product |
 
 **Gate.** Citation accuracy ≥ 95% in CI. **Switch the model off entirely
 (`MRIP_LLM_ENABLED=false`) and the exact-figure, comparison, search and report paths
@@ -239,14 +240,14 @@ Design in ARCHITECTURE §11.
 |---|---|---|
 | 5.1 | **Template engine** — declared required fields, charts, evidence blocks | ✅ YAML data, versioned; `{{entity}}`/`{{period}}` filled from a normalized context, so one template serves every subsidiary |
 | 5.2 | Production Summary template → `.docx` with a sources appendix | ✅ the appendix lists documents rather than repeating one citation per figure. Server-rendered charts not yet drawn |
-| 5.3 | Parliamentary / Administrative Response template | ⬜ the built-in template is production-summary; a second one is data, not code |
+| 5.3 | Parliamentary / Administrative Response template | ✅ offtake is **required** rather than optional, the narrative leads and the table supports it, and the evidence appendix is not optional — the three things that make it a separate template rather than a flag |
 | 5.4 | `.xlsx` and `.pptx` export | ✅ pure-Python, offline. Excel keeps canonical and printed values in separate columns, because a spreadsheet is where someone sums a column |
 | 5.5 | **Evidence manifest** — pins every `fact_id`, `document_id@version`, template version, approver | ✅ stored whole as JSONB; `entity_id` lifted into an indexed column because every read is scoped |
 | 5.6 | Approval workflow: draft → in_review → approved → published; published immutable | ✅ a table of legal transitions, not an ordering — draft cannot skip review and nothing leaves published. Sending a report back withdraws the approval with it |
 | 5.7 | **Reproduce-and-diff** — re-render from an old manifest, diff against current facts | ✅ `reproduce()` needs no store at all; `diff()` re-resolves each figure and names the version that moved it |
 | 5.8 | Click a number in the generated report → open its source page | 🔄 the locator travels into every format and the UI shows it; the page-raster highlight waits on 2.4 |
 | 5.9 | A missing required field **fails loudly**; the generator never asks a model for a figure | ✅ enforced twice — `ReportIncompleteError` on render, and an import test that forbids the writers from reaching a model |
-| 5.10 | Narrative sections are optional and checked | 🔄 `verify_prose` exists and the query path uses it; wiring it into report narratives is the remaining step |
+| 5.10 | Narrative sections are optional and checked | ✅ `reports/narrate.py` is the only module in `mrip/reports/` that may import a model, asserted by name in the architecture test. It reuses the query path's verifier rather than copying it, so "is this numeral supported?" has one definition |
 
 **Gate.** Re-publish a report from a six-month-old manifest and get byte-identical
 figures, with a diff naming every underlying document that has since been revised. Render

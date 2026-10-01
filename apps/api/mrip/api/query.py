@@ -11,17 +11,118 @@ from __future__ import annotations
 import json
 from collections.abc import Iterator
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
 
 from mrip.api.deps import PrincipalDep, ReadOnlyStoreDep, ScopeDep, SourceIpDep, StoreDep
 from mrip.llm import LLMUnavailableError, client_from_settings
+from mrip.normalize.entities import entity_by_id
+from mrip.normalize.metrics import metric_by_key
 from mrip.query.narrative import answer_narrative_stream, verify_prose
 from mrip.query.router import classify
 from mrip.query.service import answer
-from mrip.schemas import QueryRequest, QueryResponse
+from mrip.schemas import QueryIntent, QueryRequest, QueryResponse
 
 router = APIRouter(tags=["query"])
+
+
+class Suggestion(BaseModel):
+    """A question this corpus can answer, with the reason it is offered."""
+
+    question: str
+    intent: QueryIntent
+    why: str = Field(description="What in the corpus makes this answerable")
+
+
+@router.get("/query/suggestions", response_model=list[Suggestion])
+def query_suggestions(
+    reader: ReadOnlyStoreDep,
+    scope: ScopeDep,
+    limit: int = Query(default=5, ge=1, le=12),
+) -> list[Suggestion]:
+    """Questions derived from what is actually in the caller's corpus.
+
+    This exists because the alternative does not work. A hand-written list of
+    example questions is correct on the day it is written and wrong afterwards:
+    the corpus changes, the examples do not, and a user who clicks one gets
+    ``out_of_corpus``. They cannot tell that refusal apart from a broken
+    product — and on a thin or freshly-seeded corpus most of the examples fail
+    at once.
+
+    So the suggestions are built from validated facts, from metrics enough
+    entities report to make a comparison meaningful, and from keyphrases
+    actually extracted. They are scope-aware for the same reason everything
+    else is: suggesting a question about MCL to an SECL officer would disclose
+    that MCL's filings exist.
+
+    Prose intents are offered only when the model is reachable. Suggesting
+    "why did X fall" with the runtime down sends the user to a fallback that
+    looks like a failure.
+    """
+    suggestions: list[Suggestion] = []
+
+    measurements = reader.facts.answerable_measurements(scope, limit=6)
+    if measurements:
+        top = measurements[0]
+        metric = metric_by_key(str(top["metric"]))
+        entity = entity_by_id(str(top["entity_id"]))
+        label = metric.label.lower() if metric else str(top["metric"]).replace("_", " ")
+        name = entity.code if entity else str(top["entity_id"]).upper()
+        suggestions.append(
+            Suggestion(
+                question=f"{name} {label} {top['period_label']}",
+                intent=QueryIntent.EXACT_FIGURE,
+                why=f"{top['fact_count']} validated fact(s) in the corpus",
+            )
+        )
+
+    for metric_key in reader.facts.comparable_metrics(scope)[:1]:
+        metric = metric_by_key(metric_key)
+        label = metric.label.lower() if metric else metric_key.replace("_", " ")
+        suggestions.append(
+            Suggestion(
+                question=f"compare {label} across subsidiaries",
+                intent=QueryIntent.COMPARISON,
+                why="more than one entity reports this metric",
+            )
+        )
+
+    for term in reader.keyphrases.cloud(scope, limit=1):
+        suggestions.append(
+            Suggestion(
+                question=f"documents mentioning {term.term}",
+                intent=QueryIntent.DISCOVERY,
+                why=f"appears in {term.document_count} document(s)",
+            )
+        )
+
+    # Prose intents last, and only if a model is actually reachable.
+    if measurements and client_from_settings(reader.settings).available:
+        top = measurements[0]
+        metric = metric_by_key(str(top["metric"]))
+        entity = entity_by_id(str(top["entity_id"]))
+        label = metric.label.lower() if metric else str(top["metric"]).replace("_", " ")
+        name = entity.code if entity else str(top["entity_id"]).upper()
+        suggestions.append(
+            Suggestion(
+                question=f"explain {name} {label} in {top['period_label']}",
+                intent=QueryIntent.NARRATIVE,
+                why="the local model is available and these figures are pinned",
+            )
+        )
+        suggestions.append(
+            Suggestion(
+                question=(
+                    f"draft a reply to a parliamentary question on {name} "
+                    f"{label} {top['period_label']}"
+                ),
+                intent=QueryIntent.DRAFT,
+                why="the local model is available and these figures are pinned",
+            )
+        )
+
+    return suggestions[:limit]
 
 
 def _answer_kind(response: QueryResponse) -> str:

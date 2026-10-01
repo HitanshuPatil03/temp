@@ -313,6 +313,17 @@ export interface QueryResponse {
   refusal: Refusal | null;
 }
 
+/**
+ * A question the corpus can actually answer, with the reason it is offered.
+ * Built server-side from validated facts and extracted keyphrases, so a chip is
+ * never a question that leads straight to a refusal.
+ */
+export interface QuerySuggestion {
+  question: string;
+  intent: QueryIntent;
+  why: string;
+}
+
 // ----------------------------------------------------------- reports (ARCHITECTURE 11)
 
 export type ReportState = "draft" | "in_review" | "approved" | "published";

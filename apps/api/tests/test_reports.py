@@ -77,7 +77,9 @@ def test_render_markdown_shows_figures_sources_and_disabled_note(
 
     markdown = render_markdown(template, manifest)
 
-    assert "# Production Summary — secl FY2024-25" in markdown
+    assert (
+        "# Production Summary — South Eastern Coalfields Limited, FY2024-25" in markdown
+    )
     assert "193,000,000 t" in markdown  # the pinned value, formatted
     assert "doc:" in markdown  # a locator is cited
     # No narratives passed and the model is not called here: the section says so.
@@ -88,7 +90,7 @@ def test_render_refuses_an_incomplete_manifest(store: Store) -> None:
     template = default_template()
     manifest = generate(store, SCOPE, template, entity="secl", period="FY2024-25")
     assert not manifest.complete
-    with pytest.raises(ReportIncompleteError, match="coal_production"):
+    with pytest.raises(ReportIncompleteError, match="Coal production"):
         render_markdown(template, manifest)
 
 

@@ -29,6 +29,7 @@ __all__ = [
     "EntityKind",
     "EntityMatch",
     "canonical_id",
+    "entity_by_id",
     "resolve_entity",
 ]
 
@@ -214,6 +215,19 @@ ENTITIES: tuple[Entity, ...] = (
 )
 
 _BY_ID: dict[str, Entity] = {e.entity_id: e for e in ENTITIES}
+
+
+def entity_by_id(entity_id: str) -> Entity | None:
+    """The entity a canonical id names, or ``None``.
+
+    The counterpart to :func:`resolve_entity`, which goes the other way. Needed
+    wherever a stored ``entity_id`` has to be shown to a person: the fact store
+    holds ``'secl'`` and a document that leaves this system for the Ministry has
+    to say "South Eastern Coalfields Limited". Symmetric with
+    :func:`~mrip.normalize.metrics.metric_by_key`.
+    """
+    return _BY_ID.get(entity_id.strip().lower())
+
 
 _SUFFIXES = re.compile(
     r"\b(?:limited|ltd|pvt|private|company|co|corporation|corpn|the)\b", re.IGNORECASE

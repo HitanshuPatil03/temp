@@ -272,6 +272,77 @@ class FactRepository:
             "fiscal_years": sorted({row[2] for row in rows if row[2]}),
         }
 
+    def answerable_measurements(
+        self, scope: Scope, *, limit: int = 12
+    ) -> list[dict[str, Any]]:
+        """Measurements this corpus can actually answer, for the caller.
+
+        The question "what can I ask?" has to be answered from the data rather
+        than from a list of examples someone wrote once. A fixed example that no
+        longer matches the corpus does not degrade — it tells the user the
+        system is broken, because a refusal looks the same whether the question
+        was unanswerable or the product is.
+
+        Only ``validated`` facts count. A figure still in review is one the
+        exact-figure path would decline, so offering it as a suggestion would
+        send the user straight into a refusal.
+        """
+        rows = (
+            self._conn.execute(
+                sa.select(
+                    facts.c.entity_id,
+                    facts.c.metric,
+                    facts.c.period_label,
+                    facts.c.fiscal_year,
+                    sa.func.count().label("fact_count"),
+                )
+                .where(
+                    facts.c.status == FactStatus.VALIDATED.value,
+                    scope.clause(facts.c.entity_id),
+                )
+                .group_by(
+                    facts.c.entity_id,
+                    facts.c.metric,
+                    facts.c.period_label,
+                    facts.c.fiscal_year,
+                )
+                # Most-corroborated first: a measurement several documents agree on
+                # is the one most likely to satisfy whoever is trying the system.
+                .order_by(
+                    sa.func.count().desc(),
+                    facts.c.entity_id,
+                    facts.c.metric,
+                )
+                .limit(limit)
+            )
+            .mappings()
+            .all()
+        )
+        return [dict(row) for row in rows]
+
+    def comparable_metrics(self, scope: Scope, *, minimum_entities: int = 2) -> list[str]:
+        """Metrics held by enough entities for a comparison to say anything.
+
+        A "compare across subsidiaries" question over a metric only one
+        subsidiary reports produces a one-bar chart, which looks like a bug.
+        """
+        rows: Sequence[str | None] = (
+            self._conn.execute(
+                sa.select(facts.c.metric)
+                .where(
+                    facts.c.fiscal_year.is_not(None),
+                    _active(),
+                    scope.clause(facts.c.entity_id),
+                )
+                .group_by(facts.c.metric)
+                .having(sa.func.count(sa.distinct(facts.c.entity_id)) >= minimum_entities)
+                .order_by(sa.func.count(sa.distinct(facts.c.entity_id)).desc())
+            )
+            .scalars()
+            .all()
+        )
+        return [str(metric) for metric in rows]
+
     # -------------------------------------------------------------- counting
 
     def counts(self, scope: Scope) -> dict[str, int]:

@@ -150,6 +150,7 @@ export const keys = {
     ),
   termPrevalence: (term: string) =>
     `/topics/${encodeURIComponent(term)}/prevalence`,
+  querySuggestions: () => "/query/suggestions",
 };
 
 export const api = {

@@ -20,7 +20,8 @@ from typing import Literal
 import yaml
 from pydantic import BaseModel, Field
 
-from mrip.normalize.entities import canonical_id
+from mrip.normalize.entities import canonical_id, entity_by_id
+from mrip.normalize.metrics import metric_by_key
 from mrip.normalize.periods import UnknownPeriodError, normalize_period
 
 __all__ = [
@@ -56,11 +57,29 @@ class TemplateField(BaseModel):
     label: str | None = None
 
     def resolved_label(self, context: dict[str, str]) -> str:
+        """How this figure is captioned in the rendered document.
+
+        Written for a reader, not for a database. The fact store holds
+        ``secl`` / ``coal_production``; a report that leaves this system for the
+        Ministry has to say "Coal production — South Eastern Coalfields Limited,
+        FY2024-25". Those display names already exist in the normalizers, and
+        not using them was the difference between a draft and a document someone
+        would actually send.
+
+        Falls back to the raw ids when a metric or entity is unknown to the
+        normalizers, because a caption is not worth failing a render over.
+        """
         if self.label:
             return fill(self.label, context)
-        entity = fill(self.entity, context)
+
+        entity_id = fill(self.entity, context)
         period = fill(self.period, context)
-        return f"{entity} {self.metric} {period}"
+        entity = entity_by_id(entity_id)
+        metric = metric_by_key(self.metric)
+
+        metric_name = metric.label if metric else self.metric.replace("_", " ").strip()
+        entity_name = entity.name if entity else entity_id.upper()
+        return f"{metric_name} — {entity_name}, {period}"
 
 
 class TemplateSection(BaseModel):
@@ -99,7 +118,7 @@ def default_template() -> ReportTemplate:
     return ReportTemplate(
         id="production-summary",
         version=1,
-        title="Production Summary — {{entity}} {{period}}",
+        title="Production Summary — {{entity_name}}, {{period}}",
         required=[
             TemplateField(
                 metric="coal_production", entity="{{entity}}", period="{{period}}"
@@ -147,7 +166,7 @@ def parliamentary_response_template() -> ReportTemplate:
     return ReportTemplate(
         id="parliamentary-response",
         version=1,
-        title="Parliamentary Response — {{entity}} {{period}}",
+        title="Parliamentary Response — {{entity_name}}, {{period}}",
         required=[
             TemplateField(
                 metric="coal_production", entity="{{entity}}", period="{{period}}"
@@ -210,4 +229,16 @@ def normalize_context(*, entity: str, period: str) -> dict[str, str]:
         period_label = normalize_period(period).label
     except UnknownPeriodError as exc:
         raise ValueError(f"unknown period {period!r}") from exc
-    return {"entity": entity_id, "period": period_label}
+
+    resolved = entity_by_id(entity_id)
+    return {
+        # The lookup key: every figure is resolved by this, never by the name.
+        "entity": entity_id,
+        # The display name, for titles and captions. Kept as a separate
+        # placeholder rather than overwriting `entity`, so a template cannot
+        # accidentally try to resolve a figure by "South Eastern Coalfields
+        # Limited" — the store has never heard of that string.
+        "entity_name": resolved.name if resolved else entity_id.upper(),
+        "entity_code": resolved.code if resolved else entity_id.upper(),
+        "period": period_label,
+    }

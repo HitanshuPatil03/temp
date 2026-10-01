@@ -67,6 +67,7 @@ DOMAIN_STOPWORDS = frozenset(
     performance target targets actual achievement percentage percent growth
     cumulative quantity qty value values unit units lakh lakhs crore crores
     million tons mt te number no sl sr note notes source sources
+    subsidiary subsidiaries overall provisional revised during period periods
     """.split()  # noqa: SIM905 — see above
 )
 

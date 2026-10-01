@@ -19,6 +19,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import useSWR from "swr";
 
 import { PageHeader } from "@/components/shell/page-header";
 import { Badge } from "@/components/ui/badge";
@@ -27,10 +28,15 @@ import { Card, CardBody, CardDescription, CardHeader, CardTitle } from "@/compon
 import { Input } from "@/components/ui/input";
 import { ErrorState } from "@/components/ui/states";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
-import { ApiError, query, queryStream, type StreamEvent } from "@/lib/api";
+import { ApiError, fetcher, keys, query, queryStream, type StreamEvent } from "@/lib/api";
 import { entityLabel, formatValue, humanize, locator } from "@/lib/format";
-import type { Fact, Passage, QueryResponse } from "@/lib/types";
+import type { Fact, Passage, QueryResponse, QuerySuggestion } from "@/lib/types";
 
+// Fallback chips, shown only if the corpus-derived suggestions have not loaded
+// (or the corpus is empty). The live chips come from /query/suggestions, which
+// are built from validated facts — a hard-coded example that no longer matches
+// the data would send a user into a refusal they cannot tell from a broken
+// product.
 const EXAMPLES = [
   "SECL coal production FY2024-25",
   "compare coal production across subsidiaries FY2024-25",
@@ -350,6 +356,10 @@ export default function AskPage() {
   const [input, setInput] = useState("");
   const [preferStream, setPreferStream] = useState(true);
   const [state, setState] = useState<AskState>({ phase: "idle" });
+
+  // Suggestions derived from the caller's actual corpus. On failure or an empty
+  // corpus this is just absent and the static EXAMPLES stand in.
+  const suggestions = useSWR<QuerySuggestion[]>(keys.querySuggestions(), fetcher);
   const anchorRef = useRef<HTMLDivElement>(null);
 
   const isBusy = state.phase === "loading" || state.phase === "streaming";
@@ -514,17 +524,24 @@ export default function AskPage() {
             </form>
 
             <div className="mt-4 flex flex-wrap gap-1.5">
-              {EXAMPLES.map((example) => (
+              {(suggestions.data && suggestions.data.length > 0
+                ? suggestions.data.map((item) => ({
+                    question: item.question,
+                    title: item.why,
+                  }))
+                : EXAMPLES.map((example) => ({ question: example, title: "" }))
+              ).map((chip) => (
                 <button
-                  key={example}
+                  key={chip.question}
                   type="button"
+                  title={chip.title}
                   onClick={() => {
-                    setInput(example);
+                    setInput(chip.question);
                   }}
                   disabled={isBusy}
                   className="rounded-full border border-hairline bg-plane px-2.5 py-1 text-xs text-ink-2 transition-colors hover:border-rule hover:text-ink disabled:opacity-50"
                 >
-                  {example}
+                  {chip.question}
                 </button>
               ))}
             </div>

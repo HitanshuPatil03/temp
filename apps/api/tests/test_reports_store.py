@@ -191,7 +191,7 @@ def test_no_writer_emits_an_incomplete_report(store: Store, writer) -> None:
     manifest = generate(
         store, SCOPE, default_template(), entity="secl", period="FY2024-25"
     )
-    with pytest.raises(ReportIncompleteError, match="coal_production"):
+    with pytest.raises(ReportIncompleteError, match="Coal production"):
         writer(default_template(), manifest)
 
 

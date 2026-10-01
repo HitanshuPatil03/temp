@@ -177,7 +177,7 @@ def test_downloading_an_incomplete_report_is_refused(client) -> None:
     response = client.get(f"/api/reports/{report_id}/download", params={"fmt": "docx"})
 
     assert response.status_code == 409
-    assert "coal_production" in response.json()["detail"]
+    assert "Coal production" in response.json()["detail"]
 
 
 def test_diff_reports_nothing_moved_for_a_fresh_report(
@@ -264,3 +264,57 @@ def test_prevalence_is_served_per_fiscal_year(
     series = client.get("/api/topics/korba/prevalence").json()
 
     assert series == [{"fiscal_year": "FY2024-25", "document_count": 1}]
+
+
+# --------------------------------------------------------------- suggestions
+
+
+def test_suggestions_are_drawn_from_the_corpus(client, store: Store, make_fact) -> None:
+    """A chip is only offered when the corpus can answer it — the whole reason
+    this endpoint exists instead of a hard-coded example list."""
+    store.insert_facts([make_fact(status=FactStatus.VALIDATED, unit_ambiguous=False)])
+
+    suggestions = client.get("/api/query/suggestions").json()
+
+    assert suggestions, "a validated fact should produce at least one suggestion"
+    figure = next(s for s in suggestions if s["intent"] == "exact_figure")
+    # Named for a human: the proper code, not the raw id, and the metric's label.
+    assert "SECL" in figure["question"]
+    assert "coal production" in figure["question"].lower()
+    assert "validated" in figure["why"]
+
+
+def test_an_empty_corpus_suggests_nothing_rather_than_a_dead_example(
+    client,
+) -> None:
+    """The failure this prevents: five example chips that all 404 because the
+    corpus they were written for is not loaded."""
+    assert client.get("/api/query/suggestions").json() == []
+
+
+def test_suggestions_always_include_the_deterministic_intents(
+    client, store: Store, make_fact
+) -> None:
+    """Whatever the model's state, a validated figure is always offerable as an
+    exact-figure question — that path never needs the runtime."""
+    store.insert_facts([make_fact(status=FactStatus.VALIDATED, unit_ambiguous=False)])
+
+    intents = {s["intent"] for s in client.get("/api/query/suggestions").json()}
+
+    assert "exact_figure" in intents
+    # Prose intents are gated on the model being reachable; the deterministic
+    # one is not, and is what guarantees the box is never empty when there is
+    # data to ask about.
+
+
+def test_suggestions_are_scoped(client, store: Store, make_fact, make_document) -> None:
+    """A suggestion about MCL to an SECL officer would disclose MCL's data."""
+    store.insert_facts(
+        [make_fact(status=FactStatus.VALIDATED, unit_ambiguous=False, entity_id="secl")]
+    )
+
+    scoped = client.get("/api/query/suggestions").json()
+
+    # The admin client sees SECL; nothing here should mention an entity it has
+    # no facts for.
+    assert all("MCL" not in s["question"] for s in scoped)
