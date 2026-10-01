@@ -117,6 +117,37 @@ def test_the_figure_path_list_still_points_at_real_code():
     )
 
 
+def test_only_one_report_module_can_reach_a_model():
+    """§11.2 — reports generate prose in exactly one place.
+
+    The generator, the renderer and the four writers lay out figures that were
+    already pinned; `narrate.py` is the only module that produces prose, and so
+    the only one allowed a model client. Keeping that boundary at one file is
+    what makes "a report never asks a model for a figure" checkable rather than
+    a habit — and it is why the verifier lives on the query side and is imported
+    here rather than copied.
+    """
+    reports = sorted((PACKAGE / "reports").glob("*.py"))
+    assert reports, "mrip/reports/ has no modules; this test guards nothing."
+
+    reaching = {
+        file.name
+        for file in reports
+        for imported in _imports_of(file)
+        if any(
+            imported == banned or imported.startswith(f"{banned}.")
+            for banned in MODEL_IMPORTS
+        )
+    }
+
+    assert reaching == {"narrate.py"}, (
+        f"Model access in mrip/reports/ is {sorted(reaching) or 'nowhere'}, "
+        "expected exactly ['narrate.py']. Prose belongs in narrate.py, which "
+        "receives already-pinned figures; every other report module is on the "
+        "figure path and must stay unable to reach a model."
+    )
+
+
 def test_every_accepted_document_class_has_a_digitizer():
     """ARCHITECTURE §10, enforced.
 

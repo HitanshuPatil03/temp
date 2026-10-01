@@ -32,7 +32,12 @@ import { EmptyState, ErrorState, Skeleton } from "@/components/ui/states";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { ApiError, api, fetcher, keys } from "@/lib/api";
 import { formatNumber, humanize } from "@/lib/format";
-import type { FigureDelta, ReportManifest, ReportState } from "@/lib/types";
+import type {
+  FigureDelta,
+  ReportManifest,
+  ReportState,
+  TemplateSummary,
+} from "@/lib/types";
 
 /** The lifecycle, as the UI offers it. Mirrors `LEGAL_TRANSITIONS` server-side;
  *  the server is the authority and refuses anything this gets wrong. */
@@ -61,17 +66,20 @@ export default function ReportsPage() {
   const { mutate } = useSWRConfig();
   const [entity, setEntity] = useState("SECL");
   const [period, setPeriod] = useState("FY2024-25");
+  const [templateId, setTemplateId] = useState("production-summary");
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
 
   const list = useSWR<ReportManifest[]>(keys.reports(), fetcher);
+  const templates = useSWR<TemplateSummary[]>(keys.reportTemplates(), fetcher);
+  const template = (templates.data ?? []).find((item) => item.id === templateId);
 
   async function generate() {
     setGenerating(true);
     setError(null);
     try {
-      const created = await api.generateReport(entity, period);
+      const created = await api.generateReport(entity, period, templateId);
       setSelected(created.report_id);
       await mutate(keys.reports());
     } catch (cause) {
@@ -116,6 +124,21 @@ export default function ReportsPage() {
         </CardHeader>
         <CardBody>
           <div className="flex flex-wrap items-end gap-3">
+            <label className="min-w-52 flex-1">
+              <span className="mb-1 block text-xs font-medium text-ink-2">Template</span>
+              <select
+                aria-label="Template"
+                value={templateId}
+                onChange={(event) => setTemplateId(event.target.value)}
+                className="h-9 w-full rounded-md border border-hairline bg-surface px-2.5 text-sm text-ink outline-none focus:border-blue-550"
+              >
+                {(templates.data ?? []).map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {humanize(item.id)} (v{item.version})
+                  </option>
+                ))}
+              </select>
+            </label>
             <label className="min-w-40 flex-1">
               <span className="mb-1 block text-xs font-medium text-ink-2">Entity</span>
               <Input
@@ -138,6 +161,27 @@ export default function ReportsPage() {
               Generate report
             </Button>
           </div>
+
+          {/* What the chosen template will refuse over. Shown before generating
+              rather than after, so "why did this fail" is answerable in advance. */}
+          {template ? (
+            <p className="mt-3 text-xs text-ink-3">
+              Requires{" "}
+              <span className="font-medium text-ink-2">
+                {template.required.map(humanize).join(", ")}
+              </span>
+              {template.optional.length > 0 ? (
+                <>
+                  {" · optional "}
+                  {template.optional.map(humanize).join(", ")}
+                </>
+              ) : null}
+              {template.has_narrative
+                ? " · includes a narrative section, written only from the pinned figures and checked numeral by numeral"
+                : null}
+            </p>
+          ) : null}
+
           {error ? (
             <p className="mt-3 text-sm text-amber-700" role="status">
               {error}

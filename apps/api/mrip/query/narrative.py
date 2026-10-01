@@ -9,7 +9,7 @@ figure is dropped and flagged.
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from typing import TYPE_CHECKING
 
 from mrip.llm import LLMClient
@@ -28,7 +28,12 @@ if TYPE_CHECKING:
     from mrip.db.store import Store
     from mrip.query.router import RoutedQuery
 
-__all__ = ["answer_narrative", "answer_narrative_stream"]
+__all__ = [
+    "answer_narrative",
+    "answer_narrative_stream",
+    "verify_numbers",
+    "verify_prose",
+]
 
 _MAX_PASSAGES = 6
 _MAX_FACTS = 12
@@ -213,3 +218,16 @@ def verify_prose(
 ) -> tuple[str, bool]:
     """Public verifier for the streaming path."""
     return _verify(prose, _allowed_numbers(facts, passages))
+
+
+def verify_numbers(prose: str, allowed: Sequence[float]) -> tuple[str, bool]:
+    """Verify prose against an explicit set of supported numbers.
+
+    The same check as :func:`verify_prose`, for callers whose pinned figures are
+    not :class:`Fact` objects — the report generator hands over
+    :class:`~mrip.schemas.PinnedFigure` rows. Exposed rather than reimplemented
+    so that "is this numeral supported?" has exactly one definition in the
+    codebase: a second copy would drift, and the copy that drifted would be the
+    one standing between a model and a parliamentary answer.
+    """
+    return _verify(prose, list(allowed))

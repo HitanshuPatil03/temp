@@ -13,6 +13,7 @@ template serves every subsidiary and period.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import Literal
 
@@ -23,13 +24,16 @@ from mrip.normalize.entities import canonical_id
 from mrip.normalize.periods import UnknownPeriodError, normalize_period
 
 __all__ = [
+    "BUILTIN_TEMPLATES",
     "ReportTemplate",
     "TemplateField",
     "TemplateSection",
+    "builtin_template",
     "default_template",
     "fill",
     "load_template",
     "normalize_context",
+    "parliamentary_response_template",
 ]
 
 SectionKind = Literal["figures", "chart", "narrative", "evidence_appendix"]
@@ -119,6 +123,77 @@ def default_template() -> ReportTemplate:
             TemplateSection(kind="evidence_appendix", title="Sources"),
         ],
     )
+
+
+def parliamentary_response_template() -> ReportTemplate:
+    """The PS's named high-priority case: a reply to a parliamentary question.
+
+    Three things differ from the production summary, and each is the reason this
+    is a separate template rather than a flag on that one.
+
+    **Offtake is required, not optional.** A PQ about production is almost always
+    also about despatch, and a reply that silently omits it invites the follow-up
+    question. If the figure is not in the corpus, this template fails rather than
+    answering half the question.
+
+    **The narrative section comes first.** A parliamentary answer opens with the
+    position and supports it with figures; a management report opens with the
+    table. The section order is the document's argument, so it is data here.
+
+    **The evidence appendix is not optional.** A reply that is challenged in the
+    House is defended by naming the document, version and page each figure came
+    from, and that is exactly what the appendix prints.
+    """
+    return ReportTemplate(
+        id="parliamentary-response",
+        version=1,
+        title="Parliamentary Response — {{entity}} {{period}}",
+        required=[
+            TemplateField(
+                metric="coal_production", entity="{{entity}}", period="{{period}}"
+            ),
+            TemplateField(
+                metric="coal_offtake", entity="{{entity}}", period="{{period}}"
+            ),
+        ],
+        optional=[
+            TemplateField(
+                metric="overburden_removal", entity="{{entity}}", period="{{period}}"
+            ),
+        ],
+        sections=[
+            TemplateSection(
+                kind="narrative",
+                title="Reply",
+                prompt=(
+                    "State the production and offtake position for the period, "
+                    "in the measured register of a reply to a parliamentary "
+                    "question. Do not speculate on causes."
+                ),
+            ),
+            TemplateSection(kind="figures", title="Figures referred to"),
+            TemplateSection(kind="evidence_appendix", title="Sources"),
+        ],
+    )
+
+
+#: The templates that ship with the system, by id. A template is data, so adding
+#: one is adding an entry here or a YAML file — not a branch in the generator.
+BUILTIN_TEMPLATES: dict[str, Callable[[], ReportTemplate]] = {
+    "production-summary": default_template,
+    "parliamentary-response": parliamentary_response_template,
+}
+
+
+def builtin_template(template_id: str) -> ReportTemplate:
+    """One of the built-in templates, or raise ``KeyError`` naming what exists."""
+    try:
+        return BUILTIN_TEMPLATES[template_id]()
+    except KeyError:
+        known = ", ".join(sorted(BUILTIN_TEMPLATES))
+        raise KeyError(
+            f"no template {template_id!r}; built-in templates: {known}"
+        ) from None
 
 
 def normalize_context(*, entity: str, period: str) -> dict[str, str]:

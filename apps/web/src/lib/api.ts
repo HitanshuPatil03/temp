@@ -27,6 +27,7 @@ import type {
   ReportState,
   ResolvedEntity,
   SeriesPoint,
+  TemplateSummary,
   TermDocument,
   TermPrevalence,
 } from "./types";
@@ -137,6 +138,7 @@ export const keys = {
   entity: (q: string) =>
     withQuery("/normalize/entity", { q }).replace(/^\/api/, ""),
   reports: (query?: Query) => withQuery("/reports", query).replace(/^\/api/, ""),
+  reportTemplates: () => "/reports/templates",
   report: (id: string) => `/reports/${id}`,
   reportDiff: (id: string) => `/reports/${id}/diff`,
   cloud: (query?: Query) =>
@@ -197,6 +199,7 @@ export const api = {
 
   // ------------------------------------------------------------- reports
   reports: (query?: Query) => request<ReportManifest[]>("/reports", { query }),
+  reportTemplates: () => request<TemplateSummary[]>("/reports/templates"),
   report: (id: string) => request<ReportManifest>(`/reports/${id}`),
   reportDiff: (id: string) => request<FigureDelta[]>(`/reports/${id}/diff`),
 

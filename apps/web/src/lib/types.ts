@@ -378,6 +378,20 @@ export interface FigureDelta {
   note: string;
 }
 
+/**
+ * An installed report template and what it needs. `required` metrics that do
+ * not resolve block the render; `optional` ones are simply omitted.
+ */
+export interface TemplateSummary {
+  id: string;
+  version: number;
+  title: string;
+  required: string[];
+  optional: string[];
+  sections: string[];
+  has_narrative: boolean;
+}
+
 // ------------------------------------------------------------ topics (ARCHITECTURE 12)
 
 /**
