@@ -198,6 +198,43 @@ export interface Health {
   problem_statement: string;
 }
 
+// ------------------------------------------------------------------ admin
+
+export type Role = "viewer" | "officer" | "reviewer" | "approver" | "admin";
+export type AuthSource = "local" | "oidc" | "ldap";
+
+/** An account as an administrator sees it. No password hash, ever. */
+export interface UserAccount {
+  user_id: string;
+  username: string;
+  display_name: string | null;
+  email: string | null;
+  role: Role;
+  auth_source: AuthSource;
+  is_active: boolean;
+  must_change_password: boolean;
+  entities: string[];
+  failed_login_count: number;
+  locked_until: string | null;
+  created_at: string;
+  last_login_at: string | null;
+}
+
+/** One row of the append-only audit trail, as the admin endpoint returns it. */
+export interface AuditEntry {
+  audit_id: number;
+  occurred_at: string;
+  actor: string | null;
+  action: string;
+  subject_type: string | null;
+  subject_id: string | null;
+  entity_scope: string | null;
+  detail: Record<string, unknown>;
+  request_id: string | null;
+  source_ip: string | null;
+}
+
+
 // --------------------------------------------------------------- normalizer
 
 export type MTConvention = "million_tonnes" | "metric_tonne";

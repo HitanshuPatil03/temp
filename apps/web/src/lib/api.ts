@@ -11,6 +11,7 @@
  */
 
 import type {
+  AuditEntry,
   CloudTerm,
   Comparability,
   ConflictGroup,
@@ -26,10 +27,12 @@ import type {
   ReportManifest,
   ReportState,
   ResolvedEntity,
+  Role,
   SeriesPoint,
   TemplateSummary,
   TermDocument,
   TermPrevalence,
+  UserAccount,
 } from "./types";
 
 export class ApiError extends Error {
@@ -151,6 +154,8 @@ export const keys = {
   termPrevalence: (term: string) =>
     `/topics/${encodeURIComponent(term)}/prevalence`,
   querySuggestions: () => "/query/suggestions",
+  users: () => "/auth/users",
+  audit: (query?: Query) => withQuery("/auth/audit", query).replace(/^\/api/, ""),
 };
 
 export const api = {
@@ -261,6 +266,46 @@ export const api = {
       "/topics/extract",
       { method: "POST" },
     ),
+
+  // --------------------------------------------------------------- admin
+  users: () => request<UserAccount[]>("/auth/users"),
+
+  createUser: (input: {
+    username: string;
+    password: string;
+    role: Role;
+    entities: string[];
+    display_name?: string;
+  }) =>
+    request<UserAccount>("/auth/users", {
+      method: "POST",
+      body: JSON.stringify({
+        username: input.username,
+        password: input.password,
+        role: input.role,
+        entities: input.entities,
+        display_name: input.display_name || null,
+      }),
+    }),
+
+  /** Change a role, scope, active status, unlock, or reset a password. */
+  updateUser: (
+    userId: string,
+    patch: {
+      role?: Role;
+      is_active?: boolean;
+      entities?: string[];
+      unlock?: boolean;
+      display_name?: string;
+      reset_password?: string;
+    },
+  ) =>
+    request<UserAccount>(`/auth/users/${userId}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
+
+  auditLog: (query?: Query) => request<AuditEntry[]>("/auth/audit", { query }),
 };
 
 // ------------------------------------------------------------------- query (ARCHITECTURE 13)
