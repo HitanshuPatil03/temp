@@ -696,3 +696,80 @@ def test_only_an_admin_may_read_the_trail(app_client, make_user, bearer):
 
     assert app_client.get("/api/auth/audit", headers=bearer(reviewer)).status_code == 403
     assert app_client.get("/api/auth/audit", headers=bearer(admin)).status_code == 200
+
+
+# --------------------------------------------------- lockout persistence (real tx)
+
+
+@pytest.mark.integration
+def test_failed_logins_persist_the_lockout_counter_through_the_real_transaction(
+    database_url: str,
+) -> None:
+    """A failed login must COMMIT its counter and audit row, not roll them back.
+
+    The regression this pins: ``login`` used to ``raise HTTPException`` on a bad
+    attempt, which propagates through ``provide_store``'s ``engine.begin()`` as
+    an error and rolls the whole request transaction back — discarding the
+    failure counter and the audit row, so the lockout never engaged and nothing
+    was audited. The other auth tests cannot catch it because they override
+    ``provide_store`` with a shared connection that has no commit/rollback
+    boundary. This one drives the real dependency against a committed user, so a
+    revert to ``raise`` fails it.
+    """
+    from sqlalchemy import text
+
+    from mrip.db.engine import transaction
+    from mrip.db.store import Store
+
+    username = f"lockout_regression_{int(datetime.now(UTC).timestamp() * 1000)}"
+    with transaction() as conn:
+        record = Store(conn).users.create(
+            username,
+            role=Role.OFFICER,
+            password_hash=passwords.hash_password(GOOD_PASSWORD),
+        )
+        Store(conn).users.replace_scopes(record.user_id, ["secl"])
+        user_id = record.user_id
+
+    try:
+        # The real dependency chain: no provide_store override, so each request
+        # runs in its own engine.begin() transaction, exactly like production.
+        app = create_app()
+        with TestClient(app) as client:
+            codes = [
+                client.post(
+                    "/api/auth/login",
+                    json={"username": username, "password": "wrong"},
+                ).status_code
+                for _ in range(MAX_FAILED_LOGINS + 1)
+            ]
+
+        assert codes == [401] * (MAX_FAILED_LOGINS + 1)
+
+        with transaction() as conn:
+            user = Store(conn).users.by_username(username)
+            assert user is not None
+            assert user.failed_login_count >= MAX_FAILED_LOGINS
+            assert user.locked_until is not None  # the lockout actually engaged
+            failed = [
+                row
+                for row in Store(conn).audit.recent(limit=100, action="auth.login_failed")
+                if row.actor_username == username
+            ]
+            assert len(failed) >= MAX_FAILED_LOGINS  # and every failure was audited
+    finally:
+        # Self-cleaning: the audit log is append-only by trigger, so removing the
+        # probe's rows needs the same deliberate exception Store.reset documents.
+        with transaction() as conn:
+            conn.execute(text("ALTER TABLE audit_log DISABLE TRIGGER USER"))
+            try:
+                conn.execute(
+                    text("DELETE FROM audit_log WHERE actor_user_id = :u"),
+                    {"u": user_id},
+                )
+                conn.execute(
+                    text("DELETE FROM user_scopes WHERE user_id = :u"), {"u": user_id}
+                )
+                conn.execute(text("DELETE FROM users WHERE user_id = :u"), {"u": user_id})
+            finally:
+                conn.execute(text("ALTER TABLE audit_log ENABLE TRIGGER USER"))
