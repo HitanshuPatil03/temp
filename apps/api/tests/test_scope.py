@@ -157,8 +157,8 @@ def test_summary_counts_do_not_leak_corpus_size(store, make_document, make_fact)
 def test_series_is_scoped(store, make_fact):
     store.insert_facts(
         [
-            make_fact(entity_id="secl", value=193.0e6),
-            make_fact(entity_id="mcl", value=91.0e6),
+            make_fact(entity_id="secl", value=193.0e6, status=FactStatus.VALIDATED),
+            make_fact(entity_id="mcl", value=91.0e6, status=FactStatus.VALIDATED),
         ]
     )
     series = store.entity_metric_series("coal_production", SECL, unit="t")

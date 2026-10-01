@@ -92,7 +92,7 @@ TOTAL_LABELS = frozenset(
 
 _PARENTHETICAL = re.compile(r"\(([^)]*)\)")
 _FOOTNOTE = re.compile(r"[*†‡#]+\s*$")
-_NUMBER = re.compile(r"^[-+]?[\d,\s]*\.?\d+$")
+_NUMBER = re.compile(r"^[-+]?[\d,]*\.?\d+$")
 
 
 class SkipReason:
@@ -201,8 +201,17 @@ def parse_number(text: str) -> float | None:
     if percent:
         cleaned = cleaned[:-1].strip()
 
-    candidate = cleaned.replace(",", "").replace(" ", "").replace(" ", "")
-    if not candidate or not _NUMBER.match(cleaned.replace(" ", " ")):
+    # Normalise the exotic spaces OCR and PDFs emit (non-breaking, narrow,
+    # thin) to an ordinary one, so the whitespace check below sees them all.
+    cleaned = cleaned.replace(" ", " ").replace(" ", " ").replace(" ", " ")
+
+    candidate = cleaned.replace(",", "")
+    # `_NUMBER` deliberately forbids internal whitespace. An OCR'd "63.5" that
+    # arrives as "63 5" must become a refusal (→ review), never 635.0: silently
+    # closing the gap turns a lost decimal into a tenfold error on a figure
+    # headed for a report. Indian tables group with commas, not spaces, so this
+    # refuses almost nothing real — and what it refuses, it refuses safely.
+    if not candidate or not _NUMBER.match(cleaned):
         return None
 
     try:

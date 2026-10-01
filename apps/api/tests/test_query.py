@@ -108,8 +108,18 @@ def test_exact_figure_refuses_ambiguous_unit(store: Store, make_fact) -> None:
 def test_comparison_returns_a_series_across_entities(store: Store, make_fact) -> None:
     store.insert_facts(
         [
-            make_fact(entity_id="secl", value=193.0e6, unit_ambiguous=False),
-            make_fact(entity_id="mcl", value=201.0e6, unit_ambiguous=False),
+            make_fact(
+                entity_id="secl",
+                value=193.0e6,
+                unit_ambiguous=False,
+                status=FactStatus.VALIDATED,
+            ),
+            make_fact(
+                entity_id="mcl",
+                value=201.0e6,
+                unit_ambiguous=False,
+                status=FactStatus.VALIDATED,
+            ),
         ]
     )
     response = answer(store, SCOPE, "compare coal production across subsidiaries")

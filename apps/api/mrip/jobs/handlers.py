@@ -22,7 +22,12 @@ from mrip.ingest import pipeline  # noqa: F401
 from mrip.jobs.queue import JobQueue
 from mrip.jobs.registry import JobContext, handler
 
-__all__ = ["detect_conflicts", "flag_low_confidence", "prune_jobs"]
+__all__ = [
+    "detect_conflicts",
+    "flag_low_confidence",
+    "prune_jobs",
+    "recompute_topics",
+]
 
 logger = log.get_logger("mrip.jobs.maintenance")
 
@@ -70,3 +75,26 @@ def prune_jobs(ctx: JobContext) -> None:
     days = int(ctx.payload.get("older_than_days", 14))
     removed = JobQueue(ctx.store.connection).prune_finished(older_than_days=days)
     logger.info("succeeded jobs pruned", removed=removed, older_than_days=days)
+
+
+@handler("topics.recompute")
+def recompute_topics(ctx: JobContext) -> None:
+    """Rebuild every document's keyphrases with IDF over the whole corpus.
+
+    Per-document extraction runs in the ingest pipeline's index stage, where a
+    document's IDF is only approximate — it reflects the corpus extracted so
+    far. This corpus-wide pass recomputes IDF across every document at once, so
+    the cloud reflects the corpus as it actually stands. It is a **job**, not a
+    synchronous endpoint: a two-pass scan over all evidence text is minutes of
+    work and megabytes of memory on a real corpus, which an HTTP request must
+    not hold. Unrestricted, like every maintenance sweep — IDF is a property of
+    the corpus, not of any one reader; the cloud is scoped on read.
+    """
+    from mrip.topics.service import recompute_corpus
+
+    written = recompute_corpus(ctx.store)
+    logger.info(
+        "topic keyphrases recomputed",
+        documents=len(written),
+        terms_written=sum(written.values()),
+    )

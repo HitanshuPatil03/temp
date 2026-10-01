@@ -22,8 +22,8 @@ from sqlalchemy import Connection
 
 from mrip.auth.scope import Scope
 from mrip.db.mappers import fact_to_row, row_to_fact
-from mrip.db.tables import documents, facts
-from mrip.schemas import Fact, FactStatus
+from mrip.db.tables import conflict_facts, conflicts, documents, facts
+from mrip.schemas import Fact, FactStatus, ReviewState
 
 __all__ = ["INACTIVE_STATES", "LIMITING_CONFIDENCE", "FactRepository"]
 
@@ -110,6 +110,80 @@ class FactRepository:
         )
         return result.rowcount or 0
 
+    def review(
+        self,
+        fact_id: str,
+        decision: str,
+        scope: Scope,
+        *,
+        note: str | None = None,
+        corrected_value: float | None = None,
+    ) -> Fact | None:
+        """A reviewer's adjudication of a single ``needs_review`` fact.
+
+        This is the action the review queue was missing. Low-confidence and
+        unit-ambiguous facts route to ``needs_review``, the dashboard counts
+        them, and until now nothing could clear one: only *conflict* resolution
+        promoted a fact to validated, so a plain low-confidence figure was a dead
+        end a reviewer could see but not act on.
+
+        Three decisions, mirroring conflict resolution's vocabulary so the audit
+        trail reads consistently:
+
+        - ``validate`` — the figure is right as extracted. ``needs_review →
+          validated`` (``review_state = approved``).
+        - ``correct`` — the figure was misread; the reviewer supplies the right
+          canonical value. Stored validated with ``review_state = corrected``,
+          the correction noted, and the original raw value kept beside it as the
+          receipt — the evidence still quotes what the page printed.
+        - ``reject`` — wrong with no correct reading. ``→ rejected`` (not
+          deleted, not superseded: a person judged it wrong, and the trail says
+          so).
+
+        Returns the updated fact, or ``None`` when it does not exist, is out of
+        scope, or is not in a reviewable state — a settled fact is not silently
+        reopened. Scope is enforced.
+        """
+        current = self.get(fact_id, scope)
+        if current is None or current.status not in (
+            FactStatus.NEEDS_REVIEW,
+            FactStatus.EXTRACTED,
+        ):
+            return None
+
+        values: dict[str, Any] = {}
+        if decision == "validate":
+            values = {
+                "status": FactStatus.VALIDATED.value,
+                "review_state": ReviewState.APPROVED.value,
+            }
+        elif decision == "correct":
+            if corrected_value is None:
+                return None
+            values = {
+                "status": FactStatus.VALIDATED.value,
+                "review_state": ReviewState.CORRECTED.value,
+                "value": corrected_value,
+            }
+        elif decision == "reject":
+            values = {
+                "status": FactStatus.REJECTED.value,
+                "review_state": ReviewState.REJECTED.value,
+            }
+        else:
+            return None
+
+        if note:
+            values["notes"] = sa.case(
+                (facts.c.notes.is_(None), sa.literal(note)),
+                else_=facts.c.notes.concat(sa.literal(f" | {note}")),
+            )
+
+        self._conn.execute(
+            sa.update(facts).where(facts.c.fact_id == fact_id).values(**values)
+        )
+        return self.get(fact_id, scope)
+
     def delete_for_document(self, document_id: str, document_version: int) -> int:
         """Remove a document version's facts, for an idempotent re-extraction.
 
@@ -118,7 +192,45 @@ class FactRepository:
         output for this version, being replaced by the same stage on a re-run. A
         fact from a *different* version is never touched — that is what
         supersession is for.
+
+        Conflict rows that reference these facts are torn down first. ``facts``
+        is referenced by ``conflict_facts.fact_id`` and ``conflicts.resolved_fact_id``,
+        both ``ON DELETE RESTRICT``, so once ``validate`` has placed any of this
+        document's facts into a conflict group the raw ``DELETE`` is blocked and
+        the documented re-extraction path (a corrected extractor, a new metric)
+        dead-letters. Any conflict touching a doomed fact — as a member or as the
+        resolved winner — is a conflict about figures that are being replaced, so
+        it is removed whole and the ``validate`` stage recomputes the radar from
+        the new facts. The resolution *decision* is not lost: it remains in the
+        append-only ``audit_log`` as the ``conflict.resolved`` event, which is the
+        permanent record. The conflicts table is a derived working set.
         """
+        doomed = sa.select(facts.c.fact_id).where(
+            facts.c.document_id == document_id,
+            facts.c.document_version == document_version,
+        )
+        affected = (
+            sa.select(conflict_facts.c.conflict_id)
+            .where(conflict_facts.c.fact_id.in_(doomed))
+            .union(
+                sa.select(conflicts.c.conflict_id).where(
+                    conflicts.c.resolved_fact_id.in_(doomed)
+                )
+            )
+        )
+        affected_ids = [row[0] for row in self._conn.execute(affected).all()]
+        if affected_ids:
+            # Order matters for the RESTRICT keys: memberships, then the conflict
+            # rows (clearing resolved_fact_id references), then the facts below.
+            self._conn.execute(
+                sa.delete(conflict_facts).where(
+                    conflict_facts.c.conflict_id.in_(affected_ids)
+                )
+            )
+            self._conn.execute(
+                sa.delete(conflicts).where(conflicts.c.conflict_id.in_(affected_ids))
+            )
+
         result = self._conn.execute(
             sa.delete(facts).where(
                 facts.c.document_id == document_id,
@@ -218,13 +330,40 @@ class FactRepository:
     def entity_metric_series(
         self, metric: str, scope: Scope, *, unit: str | None = None
     ) -> list[dict[str, Any]]:
-        """Per-entity fiscal-year totals for one metric, shaped for the charts.
+        """Per-entity full-fiscal-year figures for one metric, shaped for charts.
 
-        ``fiscal_year IS NOT NULL`` is not an optimisation — it is a refusal.
-        A calendar-year figure summed onto a fiscal-year axis is precisely the
-        comparison the period normalizer declines to make, and it would be
-        invisible once rendered as a bar.
+        This is the comparison/trend path, and it has one job the single-figure
+        path does not: it must not **overcount**. The CIL corpus is mostly
+        monthly performance statements, so one subsidiary's FY2024-25 is stored
+        as ~12 monthly facts *plus* ~12 overlapping cumulative (`Apr–…`) facts,
+        every one tagged ``fiscal_year="FY2024-25"``. A naive ``SUM`` over them
+        reports seven or eight times the real production — on a bar chart headed
+        for a Ministry slide. Summing corroborating duplicates of one annual
+        figure does the same.
+
+        So this does not sum periods. It takes the **one authoritative
+        full-year figure** per entity: a *validated* fact whose period spans the
+        whole fiscal year (≈365 days). That is the same figure the exact path
+        would return for "SECL coal production FY2024-25", so the chart and the
+        exact answer cannot disagree.
+
+        Three consequences, each deliberate:
+
+        - **Validated only.** A figure still in review or in conflict is one the
+          exact path refuses, so it must not appear in a comparison either.
+        - **A subsidiary with only monthly facts and no annual total does not
+          appear** for that year, rather than appearing with a summed-months
+          number this system never validated as an annual total. Honest absence
+          over a plausible wrong bar.
+        - After conflict resolution there is exactly one validated full-year
+          fact per ``(entity, metric, unit, period)``, so the aggregate below is
+          over a single row; ``fact_count`` surfaces it if that ever changes.
         """
+        # Date subtraction yields integer days in PostgreSQL. A full fiscal year
+        # is 364–366 days; a month is ~30 and a part-year cumulative (Apr–Sep)
+        # ~180, so the floor cleanly admits the annual fact and nothing else.
+        full_year = (facts.c.period_end - facts.c.period_start) >= 350
+
         query = (
             sa.select(
                 facts.c.entity_id,
@@ -236,7 +375,8 @@ class FactRepository:
             .where(
                 facts.c.metric == metric,
                 facts.c.fiscal_year.is_not(None),
-                _active(),
+                facts.c.status == FactStatus.VALIDATED.value,
+                full_year,
                 scope.clause(facts.c.entity_id),
             )
             .group_by(facts.c.entity_id, facts.c.fiscal_year, facts.c.unit)

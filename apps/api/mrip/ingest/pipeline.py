@@ -44,6 +44,7 @@ from mrip.ingest.lifecycle import next_job_for, require_transition
 from mrip.jobs.queue import JobQueue, PermanentJobError
 from mrip.jobs.registry import JobContext, handler
 from mrip.schemas import Document, DocumentClass, DocumentState, ExtractionMethod
+from mrip.topics.service import extract_for_document as extract_keyphrases_for_document
 
 __all__ = [
     "classify_document",
@@ -515,6 +516,29 @@ def index_document(ctx: JobContext) -> None:
         )
     if not document.publisher_entity_id and len(facets["entities"]) == 1:
         ctx.store.documents.set_publisher(document.document_id, facets["entities"][0])
+
+    # Extract this version's keyphrases while we are here, so the word cloud
+    # (ARCHITECTURE §12) is a table read rather than a corpus scan, and so a
+    # freshly ingested document appears in it without an operator running a
+    # recompute. Deterministic TF-IDF, no model; idempotent, like every stage.
+    try:
+        terms = extract_keyphrases_for_document(
+            ctx.store, document.document_id, document.version
+        )
+        logger.info(
+            "keyphrases extracted",
+            document_id=document.document_id,
+            terms=terms,
+        )
+    except Exception:
+        # Keyphrases are a derived index, not evidence. If extraction fails the
+        # document is still fully ingested and findable; the cloud can be rebuilt
+        # by the scheduled recompute. Logged, not fatal — a word cloud must never
+        # be the reason a document fails to go READY.
+        logger.exception(
+            "keyphrase extraction failed; document still indexed",
+            document_id=document.document_id,
+        )
 
     logger.info("document indexed", document_id=document.document_id, **facets)
     _advance(

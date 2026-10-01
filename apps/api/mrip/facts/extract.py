@@ -357,7 +357,15 @@ def _extract_table(
             if row_entity is not None:
                 entity_id = row_entity.entity.entity_id
                 entity_review = row_entity.needs_review
-            elif document.publisher_entity_id:
+            elif row_metric is not None and document.publisher_entity_id:
+                # The row names a *metric*, not an organisation: this is a
+                # single-entity table about the publisher, so booking the figure
+                # to the publisher is correct. The fallback is gated on
+                # row_metric precisely so it does NOT fire for a row whose label
+                # was trying to name a subsidiary and failed to resolve — a
+                # damaged "S.E.C.L" must become a NO_ENTITY skip, never a figure
+                # silently attributed to CIL. Guessing the publisher there is the
+                # wrong-attribution this discipline exists to prevent.
                 entity_id = document.publisher_entity_id
             if entity_id is None:
                 report.skip(SkipReason.NO_ENTITY, label)

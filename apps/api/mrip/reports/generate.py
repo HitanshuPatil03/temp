@@ -159,14 +159,26 @@ def diff(store: Store, scope: Scope, manifest: ReportManifest) -> list[FigureDel
     """
     deltas: list[FigureDelta] = []
     for figure in manifest.figures:
-        period = normalize_period(figure.period_label)
+        # The pinned ``period_label`` is already the canonical label that was
+        # stored at generation; re-resolution matches facts on that exact string.
+        # Re-normalising it only recovers the fiscal_year hint — and must not be
+        # allowed to crash the diff, because not every canonical label round-trips
+        # back through the parser (an "as on 2025-03-31" label is ISO, but the
+        # as-on grammar expects day-first input). On a parse failure, resolve by
+        # the label alone; a stock/as-on figure carries no fiscal year anyway.
+        try:
+            period = normalize_period(figure.period_label)
+            period_label, fiscal_year = period.label, period.fiscal_year
+        except (UnknownPeriodError, ValueError):
+            period_label, fiscal_year = figure.period_label, None
+
         resolution = resolve_figure(
             store,
             scope,
             entity_id=figure.entity_id,
             metric=figure.metric,
-            period_label=period.label,
-            fiscal_year=period.fiscal_year,
+            period_label=period_label,
+            fiscal_year=fiscal_year,
         )
         if resolution.fact is None:
             deltas.append(

@@ -12,16 +12,20 @@ needs all three:
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Response, status
+from fastapi import APIRouter, Depends, Response, status
 
-from mrip.api.deps import PrincipalDep, ScopeDep, SettingsDep, StoreDep
+from mrip.api.deps import ScopeDep, SettingsDep, StoreDep, require_role
+from mrip.auth.principal import Principal
 from mrip.db import ping
 from mrip.jobs.queue import JobQueue
 from mrip.jobs.registry import registered_kinds
+from mrip.schemas import Role
 
 router = APIRouter(tags=["system"])
+
+AdminDep = Annotated[Principal, Depends(require_role(Role.ADMIN))]
 
 
 @router.get("/health")
@@ -47,13 +51,15 @@ def ready(response: Response) -> dict[str, Any]:
 
 
 @router.get("/health/pipeline")
-def pipeline_health(store: StoreDep, principal: PrincipalDep) -> dict[str, Any]:
+def pipeline_health(store: StoreDep, admin: AdminDep) -> dict[str, Any]:
     """Whether ingestion is actually progressing.
 
-    Authenticated, unlike the two probes above: corpus size and queue depth are
-    operational facts about a ministry's unpublished data, and an orchestrator
-    does not need them to decide whether to route traffic. An alerting system
-    reads this with a service account.
+    **Admin only.** Corpus size, queue depth and failed-document counts are
+    operational facts spanning every subsidiary, so a viewer scoped to one must
+    not read them — a system-wide document count discloses the scale of other
+    subsidiaries' holdings. An alerting system reads this with an admin service
+    account; a human orchestrator deciding whether to route traffic uses
+    ``/ready``, which needs no secrets.
 
     Queue depth alone is not enough — a depth of 40 is healthy if the oldest item
     is twenty seconds old and an outage if it is four hours old, so both are

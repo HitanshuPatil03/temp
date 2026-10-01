@@ -130,3 +130,43 @@ def test_diff_reports_a_moved_figure(store: Store, make_fact) -> None:
     assert production.changed
     assert production.approved_value == 193.0e6
     assert production.current_value == 200.0e6
+
+
+def test_diff_survives_a_period_label_that_does_not_reparse(store: Store) -> None:
+    """A stock/"as on" figure pins a canonical label the period parser cannot
+    round-trip (it emits ISO, the grammar wants day-first). diff() must not
+    crash on it — it resolves by the stored label and reports the figure as no
+    longer resolving, rather than throwing and taking the whole diff down."""
+    from datetime import UTC, datetime
+
+    from mrip.schemas import PinnedFigure, ReportManifest
+
+    manifest = ReportManifest(
+        report_id="rpt_ason",
+        template_id="production-summary",
+        template_version=1,
+        title="Stock",
+        generated_at=datetime.now(UTC),
+        figures=[
+            PinnedFigure(
+                label="Closing stock",
+                entity_id="secl",
+                metric="coal_stock",
+                period_label="as on 2025-03-31",
+                fact_id="fact_x",
+                value=1.0e6,
+                unit="t",
+                raw_value=1.0,
+                raw_unit="MT",
+                document_id="doc_x",
+                document_version=1,
+                locator="doc:doc_x",
+            )
+        ],
+    )
+
+    deltas = diff(store, SCOPE, manifest)  # must not raise
+
+    assert len(deltas) == 1
+    assert deltas[0].changed
+    assert "no longer resolves" in deltas[0].note

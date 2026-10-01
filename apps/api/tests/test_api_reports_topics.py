@@ -215,6 +215,18 @@ def _ingest(store: Store, make_document, filename: str, entity: str, *texts: str
     return document
 
 
+def _run_topics_recompute(store: Store) -> None:
+    """Run the work the ``topics.recompute`` job does, as a worker would.
+
+    The endpoint only enqueues; this executes the handler's effect against the
+    test's store so the assertions see a populated cloud. Faithful because the
+    job handler calls exactly this.
+    """
+    from mrip.topics.service import recompute_corpus
+
+    recompute_corpus(store)
+
+
 def test_extraction_then_cloud_then_drill_through(
     client, store: Store, make_document
 ) -> None:
@@ -223,9 +235,14 @@ def test_extraction_then_cloud_then_drill_through(
         store, make_document, "gevra.pdf", "secl", "Gevra Gevra dragline dragline"
     )
 
-    extracted = client.post("/api/topics/extract")
-    assert extracted.status_code == 200
-    assert extracted.json()["terms_written"] > 0
+    scheduled = client.post("/api/topics/extract")
+    assert scheduled.status_code == 202
+    assert scheduled.json()["status"] == "scheduled"
+    assert scheduled.json()["job_id"]
+    # The endpoint only enqueues; run the job as a worker would. The queue and
+    # the test share one transaction, so calling the handler's work directly is
+    # faithful to what the worker does.
+    _run_topics_recompute(store)
 
     cloud = client.get("/api/topics/cloud").json()
     assert cloud
@@ -235,6 +252,21 @@ def test_extraction_then_cloud_then_drill_through(
         reached = client.get(f"/api/topics/{term['term']}/documents").json()
         assert reached, f"{term['term']} is a dead end"
         assert reached[0]["document_id"] == document.document_id
+
+
+def test_extraction_is_enqueued_not_run_in_the_request(
+    client, store: Store, make_document
+) -> None:
+    """A corpus-wide recompute must not run inside the HTTP request — it is
+    minutes of work and megabytes of memory. The endpoint enqueues and returns;
+    the cloud stays empty until a worker runs the job."""
+    _ingest(store, make_document, "gevra.pdf", "secl", "Gevra Gevra dragline dragline")
+
+    scheduled = client.post("/api/topics/extract")
+
+    assert scheduled.status_code == 202
+    # Not yet run: no worker has drained the queue.
+    assert client.get("/api/topics/cloud").json() == []
 
 
 def test_a_viewer_cannot_trigger_extraction(viewer_client) -> None:
@@ -260,6 +292,7 @@ def test_prevalence_is_served_per_fiscal_year(
 ) -> None:
     _ingest(store, make_document, "fy24.pdf", "secl", "Korba Korba Raigarh Raigarh")
     client.post("/api/topics/extract")
+    _run_topics_recompute(store)
 
     series = client.get("/api/topics/korba/prevalence").json()
 
@@ -318,3 +351,51 @@ def test_suggestions_are_scoped(client, store: Store, make_fact, make_document) 
     # The admin client sees SECL; nothing here should mention an entity it has
     # no facts for.
     assert all("MCL" not in s["question"] for s in scoped)
+
+
+# ------------------------------------------------------- fact review (queue)
+
+
+def test_a_reviewer_validates_a_fact_over_http(client, store: Store, make_fact) -> None:
+    """The review queue's missing action, end to end: a needs_review fact
+    becomes validated through the API, with the decision audited."""
+    store.insert_facts([make_fact(status=FactStatus.NEEDS_REVIEW)])
+    fact = store.query_facts(SCOPE, status=FactStatus.NEEDS_REVIEW)[0]
+
+    response = client.post(
+        f"/api/facts/{fact.fact_id}/review", json={"decision": "validate"}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "validated"
+    assert response.json()["review_state"] == "approved"
+
+
+def test_correct_requires_a_value_over_http(client, store: Store, make_fact) -> None:
+    store.insert_facts([make_fact(status=FactStatus.NEEDS_REVIEW)])
+    fact = store.query_facts(SCOPE, status=FactStatus.NEEDS_REVIEW)[0]
+
+    response = client.post(
+        f"/api/facts/{fact.fact_id}/review", json={"decision": "correct"}
+    )
+    assert response.status_code == 422  # schema refuses correct with no value
+
+
+def test_reviewing_a_settled_fact_is_a_404(client, store: Store, make_fact) -> None:
+    store.insert_facts([make_fact(status=FactStatus.VALIDATED)])
+    fact = store.query_facts(SCOPE, status=FactStatus.VALIDATED)[0]
+
+    response = client.post(
+        f"/api/facts/{fact.fact_id}/review", json={"decision": "reject"}
+    )
+    assert response.status_code == 404
+
+
+def test_a_viewer_cannot_review_a_fact(viewer_client, store: Store, make_fact) -> None:
+    store.insert_facts([make_fact(status=FactStatus.NEEDS_REVIEW)])
+    fact = store.query_facts(SCOPE, status=FactStatus.NEEDS_REVIEW)[0]
+
+    response = viewer_client.post(
+        f"/api/facts/{fact.fact_id}/review", json={"decision": "validate"}
+    )
+    assert response.status_code == 403

@@ -23,7 +23,7 @@ from mrip.api.deps import provide_store
 from mrip.auth.scope import SCOPE_ALL, Scope
 from mrip.db import Store
 from mrip.main import create_app
-from mrip.schemas import Role
+from mrip.schemas import FactStatus, Role
 
 #: These suites exercise storage and routing, not access control; the
 #: scope-enforcement assertions live in tests/test_scope.py.
@@ -153,7 +153,10 @@ def test_unknown_fact_is_404(client):
 
 def test_series_endpoint_shapes_data_for_charts(client, store, make_fact):
     store.insert_facts(
-        [make_fact(entity_id="secl"), make_fact(entity_id="mcl", value=201.0e6)]
+        [
+            make_fact(entity_id="secl", status=FactStatus.VALIDATED),
+            make_fact(entity_id="mcl", value=201.0e6, status=FactStatus.VALIDATED),
+        ]
     )
     series = client.get("/api/series/coal_production?unit=t").json()
 

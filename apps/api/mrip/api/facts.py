@@ -14,10 +14,11 @@ edit to the record.
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+import math
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from mrip.api.deps import ScopeDep, SourceIpDep, StoreDep, require_role
 from mrip.auth.principal import Principal
@@ -36,6 +37,28 @@ class ResolutionRequest(BaseModel):
         default=None,
         description="Why this figure was chosen. Stored with the decision.",
     )
+
+
+class FactReviewRequest(BaseModel):
+    """A reviewer's adjudication of a single needs-review fact."""
+
+    decision: Literal["validate", "correct", "reject"]
+    note: str | None = Field(
+        default=None, description="Why. Appended to the fact's notes and audited."
+    )
+    corrected_value: float | None = Field(
+        default=None,
+        description="Required for 'correct': the right canonical value, in the "
+        "fact's unit. The raw value is kept as the receipt.",
+    )
+
+    @model_validator(mode="after")
+    def _correct_needs_value(self) -> FactReviewRequest:
+        if self.decision == "correct" and self.corrected_value is None:
+            raise ValueError("A 'correct' decision must supply corrected_value.")
+        if self.corrected_value is not None and not math.isfinite(self.corrected_value):
+            raise ValueError("corrected_value must be a finite number.")
+        return self
 
 
 @router.get("/facts", response_model=list[Fact])
@@ -72,6 +95,58 @@ def get_fact(fact_id: str, store: StoreDep, scope: ScopeDep) -> Fact:
     fact = store.get_fact(fact_id, scope)
     if fact is None:
         raise HTTPException(status_code=404, detail=f"No fact {fact_id!r}")
+    return fact
+
+
+@router.post("/facts/{fact_id}/review", response_model=Fact)
+def review_fact(
+    fact_id: str,
+    body: FactReviewRequest,
+    store: StoreDep,
+    scope: ScopeDep,
+    reviewer: ReviewerDep,
+    request: Request,
+    caller_ip: SourceIpDep,
+) -> Fact:
+    """Adjudicate a fact sitting in the review queue.
+
+    The counterpart to conflict resolution, for the facts that are not in a
+    conflict but were routed to review for low confidence or an ambiguous unit.
+    Without it the review queue is a number on the dashboard a reviewer can see
+    but never clear. Validate accepts the figure, correct replaces its canonical
+    value with the reviewer's (keeping the raw receipt), reject marks it wrong —
+    each recorded in the audit log with the reviewer's identity, because an
+    accepted figure nobody is named against is not an adjudication.
+    """
+    fact = store.review_fact(
+        fact_id,
+        body.decision,
+        scope,
+        note=body.note,
+        corrected_value=body.corrected_value,
+    )
+    if fact is None:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"Fact {fact_id!r} not found, out of your scope, or not awaiting "
+                "review (a validated or rejected fact is a settled decision)."
+            ),
+        )
+    store.audit.record(
+        f"fact.{body.decision}",
+        actor_user_id=reviewer.user_id,
+        actor_username=reviewer.username,
+        subject_type="fact",
+        subject_id=fact_id,
+        detail={
+            "decision": body.decision,
+            "note": body.note,
+            "corrected_value": body.corrected_value,
+        },
+        request_id=getattr(request.state, "request_id", None),
+        source_ip=caller_ip,
+    )
     return fact
 
 

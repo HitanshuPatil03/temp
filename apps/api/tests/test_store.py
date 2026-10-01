@@ -326,10 +326,11 @@ def test_series_excludes_calendar_year_facts(store, make_fact):
     """A calendar-year figure must not land on a fiscal-year axis."""
     store.insert_facts(
         [
-            make_fact(entity_id="secl", value=193.0e6),
+            make_fact(entity_id="secl", value=193.0e6, status=FactStatus.VALIDATED),
             make_fact(
                 entity_id="secl",
                 value=180.0e6,
+                status=FactStatus.VALIDATED,
                 fiscal_year=None,
                 period_label="2024",
                 period_start=date(2024, 1, 1),

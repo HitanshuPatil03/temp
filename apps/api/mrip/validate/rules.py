@@ -26,6 +26,7 @@ act on a finding will immediately ask "compared with what?"
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -66,6 +67,21 @@ _NON_NEGATIVE = frozenset(
         "gcv",
     }
 )
+
+
+_FY_START = re.compile(r"(\d{4})")
+
+
+def _fy_start(fiscal_year: str | None) -> int:
+    """The starting calendar year of a fiscal-year label, for adjacency maths.
+
+    ``"FY2024-25"`` → ``2024``. Returns ``-1`` for a label with no four-digit
+    year, which simply makes it a far neighbour rather than crashing the rule.
+    """
+    if not fiscal_year:
+        return -1
+    match = _FY_START.search(fiscal_year)
+    return int(match.group(1)) if match else -1
 
 
 @dataclass(frozen=True, slots=True)
@@ -145,24 +161,30 @@ def implausible_magnitude(facts: Sequence[Fact], _store: Store) -> list[Finding]
 
 
 def production_above_capacity(facts: Sequence[Fact], store: Store) -> list[Finding]:
-    """Production more than 30% above the same mine's rated capacity.
+    """Production more than 30% above the entity's rated capacity.
 
-    Compared only against a capacity figure for the **same entity**, because a
-    subsidiary's capacity says nothing about one mine's. When no capacity is
-    known the rule stays silent rather than guessing one.
+    Keyed on the entity, not the mine. The schema has a ``mine_or_block`` field
+    but the extractor does not yet populate it, so a per-mine comparison is not
+    possible from the data — and keying on an always-empty field silently made
+    *every* capacity figure for an entity collapse to one bucket, comparing the
+    entity's whole production against a single mine's capacity. Until mine-level
+    facts exist this rule is honestly entity-level: it uses the largest rated
+    capacity recorded for the entity (its sanctioned annual capacity) and the
+    annual production figure. Rated capacity is per-annum, so a sub-annual
+    production figure sits well under it and does not fire — which is correct, a
+    month's output is not meant to approach a year's capacity. When no capacity
+    is known the rule stays silent rather than guessing one.
     """
     capacity: dict[str, float] = {}
     for fact in facts:
         if fact.metric == "rated_capacity" and fact.unit == "t":
-            key = f"{fact.entity_id}|{fact.mine_or_block or ''}"
-            capacity[key] = max(capacity.get(key, 0.0), fact.value)
+            capacity[fact.entity_id] = max(capacity.get(fact.entity_id, 0.0), fact.value)
 
     findings = []
     for fact in facts:
         if fact.metric != "coal_production" or fact.unit != "t":
             continue
-        key = f"{fact.entity_id}|{fact.mine_or_block or ''}"
-        rated = capacity.get(key)
+        rated = capacity.get(fact.entity_id)
         if rated and fact.value > rated * CAPACITY_TOLERANCE:
             findings.append(
                 Finding(
@@ -198,6 +220,7 @@ def year_on_year_swing(facts: Sequence[Fact], store: Store) -> list[Finding]:
         }:
             continue
 
+        this_year = _fy_start(fact.fiscal_year)
         history = [
             other
             for other in store.facts.query(
@@ -214,7 +237,14 @@ def year_on_year_swing(facts: Sequence[Fact], store: Store) -> list[Finding]:
         if not history:
             continue
 
-        previous = max(history, key=lambda item: item.fiscal_year or "")
+        # The *adjacent* fiscal year, not the lexically latest. `max(fiscal_year)`
+        # would compare a figure against whatever year sorts highest in the
+        # history — so ingesting an older document after newer ones measured the
+        # swing across a multi-year gap, which the docstring never promised. The
+        # neighbour is the stored year whose start is closest to this fact's.
+        previous = min(
+            history, key=lambda item: abs(_fy_start(item.fiscal_year) - this_year)
+        )
         if previous.value <= 0:
             continue
         change = (fact.value - previous.value) / previous.value
@@ -239,22 +269,31 @@ def year_on_year_swing(facts: Sequence[Fact], store: Store) -> list[Finding]:
 
 
 def offtake_exceeds_production(facts: Sequence[Fact], _store: Store) -> list[Finding]:
-    """Offtake far above production for the same entity and period.
+    """Offtake far above production for the same entity and the same period.
 
     Offtake *can* exceed production — the difference comes out of pithead stock —
     so this fires only beyond 20%, which is more stock than a mine normally
     holds.
+
+    Keyed on ``entity|period_label``, not ``entity|fiscal_year``: a monthly
+    offtake must be checked against the *same month's* production, never against
+    the annual total (which would never fire) or the reverse (which would always
+    fire). Comparing figures of different period granularities is exactly the
+    mistake the period normalizer exists to prevent, and the rule must not
+    reintroduce it. Where more than one production figure shares a period, the
+    largest is used, so the ratio is the most conservative one available.
     """
     production: dict[str, float] = {}
     for fact in facts:
         if fact.metric == "coal_production" and fact.unit == "t":
-            production[f"{fact.entity_id}|{fact.fiscal_year}"] = fact.value
+            key = f"{fact.entity_id}|{fact.period_label}"
+            production[key] = max(production.get(key, 0.0), fact.value)
 
     findings = []
     for fact in facts:
         if fact.metric != "coal_offtake" or fact.unit != "t":
             continue
-        produced = production.get(f"{fact.entity_id}|{fact.fiscal_year}")
+        produced = production.get(f"{fact.entity_id}|{fact.period_label}")
         if produced and fact.value > produced * 1.20:
             findings.append(
                 Finding(

@@ -14,14 +14,15 @@ after it.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query, Request
 
 from mrip.api.deps import ScopeDep, SourceIpDep, StoreDep, require_role
 from mrip.auth.principal import Principal
+from mrip.jobs.queue import JobQueue
 from mrip.schemas import CloudTerm, Role, TermDocument
-from mrip.topics.service import recompute_corpus
 
 router = APIRouter(prefix="/topics", tags=["topics"])
 
@@ -91,7 +92,7 @@ def term_prevalence(
     return store.keyphrases.prevalence(term.lower(), scope, entity_id=entity_id)
 
 
-@router.post("/extract")
+@router.post("/extract", status_code=202)
 def extract_topics(
     store: StoreDep,
     scope: ScopeDep,
@@ -99,28 +100,43 @@ def extract_topics(
     request: Request,
     caller_ip: SourceIpDep,
 ) -> dict[str, Any]:
-    """Re-extract keyphrases across the corpus, with IDF over the whole of it.
+    """Enqueue a corpus-wide keyphrase recompute. Returns 202 with the job id.
 
-    A write, so it takes a role rather than being a read anyone may trigger. The
-    recompute is corpus-wide and therefore unscoped — IDF is a property of the
-    corpus, not of the reader — but it returns only counts, and the cloud built
-    from it is scoped on every read.
+    This does **not** run the recompute in the request. A two-pass scan over all
+    evidence text is minutes of work and holds megabytes in memory on a real
+    corpus — an HTTP request is the wrong place for it, and doing it here would
+    tie up a connection and time out. It goes on the job queue the rest of the
+    pipeline already uses; a worker runs it and the cloud updates when it lands.
+    Day to day the cloud is kept current by per-document extraction in the
+    ingest pipeline, so this is the deliberate full rebuild, not the common path.
+
+    Idempotent on the queue: a second request while one is pending collapses onto
+    the in-flight job rather than stacking a duplicate scan.
     """
-    written = recompute_corpus(store)
+    # A minute-bucketed idempotency key: a double-click (or an alert firing
+    # twice) collapses onto one job, but an operator who genuinely wants another
+    # rebuild a minute later gets one. A fixed key would make the recompute a
+    # once-ever operation, because a succeeded job keeps its key.
+    bucket = datetime.now(UTC).strftime("%Y%m%d%H%M")
+    queue = JobQueue(store.connection)
+    enqueued = queue.enqueue(
+        "topics.recompute",
+        payload={"requested_by": officer.user_id},
+        idempotency_key=f"topics.recompute:{bucket}",
+    )
+    job = enqueued.job
     store.audit.record(
-        "topics.extracted",
+        "topics.recompute_requested",
         actor_user_id=officer.user_id,
         actor_username=officer.username,
         subject_type="corpus",
-        detail={
-            "documents": len(written),
-            "terms_written": sum(written.values()),
-        },
+        subject_id=job.job_id,
+        detail={"job_id": job.job_id, "collapsed": not enqueued.created},
         request_id=getattr(request.state, "request_id", None),
         source_ip=caller_ip,
     )
     return {
-        "documents": len(written),
-        "terms_written": sum(written.values()),
+        "status": "scheduled",
+        "job_id": job.job_id,
         "terms_in_scope": store.keyphrases.count_terms(scope),
     }

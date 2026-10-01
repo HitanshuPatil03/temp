@@ -137,6 +137,20 @@ class Store:
     def set_fact_status(self, fact_ids: Sequence[str], status: FactStatus) -> int:
         return self.facts.set_status(fact_ids, status)
 
+    def review_fact(
+        self,
+        fact_id: str,
+        decision: str,
+        scope: Scope,
+        *,
+        note: str | None = None,
+        corrected_value: float | None = None,
+    ) -> Fact | None:
+        """Adjudicate a single needs_review fact (validate / correct / reject)."""
+        return self.facts.review(
+            fact_id, decision, scope, note=note, corrected_value=corrected_value
+        )
+
     def flag_low_confidence(self, threshold: float | None = None) -> int:
         return self.facts.flag_low_confidence(
             self._settings.review_confidence_threshold if threshold is None else threshold
