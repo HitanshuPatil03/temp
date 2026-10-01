@@ -263,6 +263,37 @@ def test_unresolvable_unit_is_422_with_a_reason(client):
     assert "wibbles" in response.json()["detail"]
 
 
+@pytest.mark.parametrize("value", ["nan", "inf", "-inf", "infinity"])
+def test_quantity_endpoint_refuses_non_finite_values(client, value):
+    """NaN/Infinity serialise to tokens that are not valid JSON — refuse them at
+    the door rather than emit a response a strict client cannot parse."""
+    response = client.get("/api/normalize/quantity", params={"value": value, "unit": "t"})
+    assert response.status_code == 422
+
+
+def test_quantity_endpoint_refuses_an_overflowing_conversion(client):
+    """A finite input whose conversion overflows to infinity is refused too."""
+    response = client.get(
+        "/api/normalize/quantity", params={"value": 1e308, "unit": "crore"}
+    )
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize("raw", ["as on 31.13.2025", "as on 32.01.2025"])
+def test_period_endpoint_refuses_an_impossible_as_on_date(client, raw):
+    """An impossible calendar date in an 'as on' label is a 422 refusal, not a
+    500 from a bare ValueError reaching the handler."""
+    response = client.get("/api/normalize/period", params={"raw": raw})
+    assert response.status_code == 422
+
+
+def test_audit_endpoint_rejects_a_negative_limit(client):
+    """A negative limit must be a 422, not a 500 from Postgres rejecting a
+    negative LIMIT."""
+    response = client.get("/api/auth/audit", params={"limit": -1})
+    assert response.status_code == 422
+
+
 def test_period_endpoint_resolves_a_fiscal_year(client):
     body = client.get("/api/normalize/period", params={"raw": "Q3 FY2024-25"}).json()
     assert body["start"] == "2024-10-01"

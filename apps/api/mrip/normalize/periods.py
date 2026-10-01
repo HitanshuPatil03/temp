@@ -308,7 +308,18 @@ def normalize_period(raw: str) -> Period:
     )
     if as_on:
         day, month, year_token = as_on.groups()
-        snapshot = date(_expand_year(year_token), int(month), int(day))
+        # The regex matches 1–2 digit day/month, so "31.13.2025" or "32.01.2025"
+        # reach here with values `date()` will reject. Catch that and refuse with
+        # the normalizer's own error, rather than letting a bare ValueError become
+        # a 500 at the API, or crash the report generator — an impossible date is
+        # a thing to decline, like any other input this layer cannot resolve.
+        try:
+            snapshot = date(_expand_year(year_token), int(month), int(day))
+        except ValueError as bad:
+            raise UnknownPeriodError(
+                f"{raw.strip()!r} looks like an 'as on' date but "
+                f"{day}.{month}.{year_token} is not a real calendar date."
+            ) from bad
         return Period(
             kind=PeriodKind.AS_ON,
             start=snapshot,

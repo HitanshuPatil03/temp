@@ -26,7 +26,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from mrip.api.deps import (
@@ -504,7 +504,7 @@ def update_user(
 def read_audit(
     admin: AdminDep,
     store: StoreDep,
-    limit: int = 100,
+    limit: int = Query(default=100, ge=1, le=1000),
     action: str | None = None,
     subject_id: str | None = None,
 ) -> list[dict[str, Any]]:
@@ -513,9 +513,7 @@ def read_audit(
     Unscoped by necessity — a trail filtered by the reader's own entity scope is
     not a trail — which is why the role check is the whole access control here.
     """
-    entries = store.audit.recent(
-        limit=min(limit, 1000), action=action, subject_id=subject_id
-    )
+    entries = store.audit.recent(limit=limit, action=action, subject_id=subject_id)
     return [
         {
             "audit_id": entry.audit_id,

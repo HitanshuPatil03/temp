@@ -111,7 +111,13 @@ async def upload_document(
     a viewer is someone who reads it.
     """
     settings.ensure_dirs()
-    staging = settings.upload_staging_dir / f"{new_id('up')}-{file.filename or 'upload'}"
+    # The staging path is built from the generated id alone, never from
+    # file.filename. A filename carrying a NUL byte, a path separator, or more
+    # than the filesystem's name limit would otherwise raise ValueError/OSError
+    # on open() — before the IntakeError handler below is in scope — and surface
+    # as a 500 on a hostile filename. The uploader's filename is still recorded
+    # and inspected as advisory metadata; it just never touches the filesystem.
+    staging = settings.upload_staging_dir / f"{new_id('up')}.upload"
 
     written = 0
     try:
