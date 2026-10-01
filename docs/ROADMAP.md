@@ -22,9 +22,9 @@ And its three deliverables against the phases that build them:
 
 | PS deliverable | Phase | State |
 |---|---|---|
-| **1. Automated Report Generation Platform** | Phase 5 | ⬜ designed (ARCHITECTURE §11), not built |
-| **2. Word Cloud & Topic Identification** | Phase 6 | ⬜ designed (§12), not built |
-| **3. AI-Based Query & Response System** | Phase 4 | ⬜ designed (§13); the lexical half of retrieval exists as a generated column |
+| **1. Automated Report Generation Platform** | Phase 5 | 🔄 **built** — templates, pinned manifests, publish lifecycle, four formats, reproduce-and-diff. Charts and the second template remain |
+| **2. Word Cloud & Topic Identification** | Phase 6 | 🔄 **built** — deterministic TF-IDF, scope-aware cloud sized by document frequency, term→document drill-through. Embedding clustering remains optional and unbuilt |
+| **3. AI-Based Query & Response System** | Phase 4 | 🔄 **built** — five intents routed, streaming narrative with numeral verification, structured refusals. The vector half of hybrid retrieval is still lexical-only |
 
 Everything under them — the evidence store, the fact store with its traceability, the
 conflict radar, identity and audit — is Phases 0–3, and is built.
@@ -69,11 +69,11 @@ screenshot**.
 | Lifecycle + pipeline stages (`mrip/ingest/`) | 676 | ✅ six stages, idempotent |
 | Metric lexicon + table extractor (`mrip/normalize`, `mrip/facts`) | 899 | ✅ refuses what it cannot resolve |
 | Validation rules (`mrip/validate/rules.py`) | 325 | ✅ five domain rules |
-| Backend total | **12,200** | ruff + mypy strict clean |
-| Test suite | 3,700 | ✅ **296 passing in ~18 s** |
-| Frontend (light theme, 7 surfaces, sign-in, upload, session proxy) | 4,400 | ✅ build green |
+| Backend total | **14,500** | ruff + mypy strict clean |
+| Test suite | 5,100 | ✅ **466 passing in ~39 s** |
+| Frontend (light theme, 9 surfaces, sign-in, upload, session proxy) | 5,300 | ✅ build green |
 
-**296 tests green** against PostgreSQL 17.11 + pgvector 0.8.6. The normalizers and
+**466 tests green** against PostgreSQL 17.11 + pgvector 0.8.6. The normalizers and
 schemas are storage-independent and carried forward untouched; `db.py` (664 lines of
 DuckDB) was the one component the PostgreSQL decision rewrote, as ARCHITECTURE §12
 predicted.
@@ -108,7 +108,7 @@ migrations exist; retrofitting any of the three is a rewrite.
 | 0.13 | Frontend shell: light-theme tokens, primitives, API client, all five surfaces wired | ✅ done — dashboard, documents, facts, conflicts, normalizer |
 | 0.14 | **Frontend session handling** | ✅ done — the token lives in an httpOnly cookie and `src/proxy.ts` turns it into a bearer header server-side, so no script in the browser can read a credential; sign-in is a Server Function, and a temporary password can reach only the change-password page |
 
-**Status:** 264 tests green in ~17 s against PostgreSQL 17.11 + pgvector 0.8.6 ·
+**Status:** 466 tests green in ~39 s against PostgreSQL 17.11 + pgvector 0.8.6 ·
 ruff clean · mypy strict clean on 48 modules · zero schema drift ·
 `mrip-scheduler` elects itself and enqueues, `mrip-worker` drains ·
 sign-in verified in a browser through Next → proxy → FastAPI → Postgres, with an
@@ -204,22 +204,22 @@ the corpus also holds scanned pages with no text objects at all, which are not r
 
 ---
 
-## Phase 4 — **PS Deliverable 3**: AI query & response `← next`
+## Phase 4 — **PS Deliverable 3**: AI query & response 🔄
 
 The deliverable that most invites a chatbot, built so that it is not one. Design in
 ARCHITECTURE §13.
 
 | # | Task | Notes |
 |---|---|---|
-| 4.1 | **Intent router** — exact / comparison / discovery / narrative / draft | Routing on the question's *shape*, using the normalizers' own vocabularies: a question naming a metric, an entity and a period has a numeric answer and never reaches a model. Unsure → the conservative branch |
-| 4.2 | **Exact + comparison routes with no model client in scope** | Enforced by an import test, not a convention (§7) |
-| 4.3 | Lexical retrieval over `evidence.search_vector` | The index exists — a **generated** column with a GIN index, so it cannot drift. What is left is the query surface and ranking |
-| 4.4 | Chunking + local embeddings → pgvector HNSW | Embeddings computed on the host; the `ml` extra, not the core |
-| 4.5 | Hybrid fusion (reciprocal rank) | Lexical alone misses "offtake" when the page says "despatch"; vector alone misses an exact mine name |
-| 4.6 | **Narrative route** — Ollama + Qwen3 8B over retrieved passages and pinned facts | Thinking mode off by default; citations restricted to what was passed in; a numeral not in the pinned facts is stripped and the answer flagged |
-| 4.7 | Refusal path — ambiguous unit, open conflict, out of corpus, no validated fact | Structured responses carrying the evidence that caused them, rendered as answers rather than errors |
-| 4.8 | Evidence panel: answer → source page, region highlighted | The page raster cache (2.4) is a prerequisite |
-| 4.9 | Gold query set (50+ labelled) + citation-accuracy KPI in CI | |
+| 4.1 | **Intent router** — exact / comparison / discovery / narrative / draft | ✅ Routing on the question's *shape*, using the normalizers' own vocabularies: a question naming a metric, an entity and a period has a numeric answer and never reaches a model. Unsure → the conservative branch |
+| 4.2 | **Exact + comparison routes with no model client in scope** | ✅ Enforced by an import test, not a convention (§7) |
+| 4.3 | Lexical retrieval over `evidence.search_vector` | ✅ the discovery route queries it and ranks by `ts_rank`; the index is a **generated** column so it cannot drift |
+| 4.4 | Chunking + local embeddings → pgvector HNSW | ⬜ Embeddings computed on the host; the `ml` extra, not the core |
+| 4.5 | Hybrid fusion (reciprocal rank) | ⬜ Lexical alone misses "offtake" when the page says "despatch"; vector alone misses an exact mine name |
+| 4.6 | **Narrative route** — Ollama + Qwen3 8B over retrieved passages and pinned facts | ✅ streaming, with Thinking mode off by default; citations restricted to what was passed in; a numeral not in the pinned facts is stripped and the answer flagged |
+| 4.7 | Refusal path — ambiguous unit, open conflict, out of corpus, no validated fact | ✅ Structured responses carrying the evidence that caused them, rendered as answers rather than errors |
+| 4.8 | Evidence panel: answer → source page, region highlighted | 🔄 citations resolve to document, page, table and cell; the raster highlight waits on the page cache (2.4) |
+| 4.9 | Gold query set (50+ labelled) + citation-accuracy KPI in CI | ⬜ blocked on the same ground truth as 3.6 |
 
 **Gate.** Citation accuracy ≥ 95% in CI. **Switch the model off entirely
 (`MRIP_LLM_ENABLED=false`) and the exact-figure, comparison, search and report paths
@@ -231,24 +231,22 @@ touching the figure path — because the figure path has no model client to swap
 
 ---
 
-## Phase 5 — **PS Deliverable 1**: automated report generation
+## Phase 5 — **PS Deliverable 1**: automated report generation 🔄
 
-| # | Task |
-|---|---|
 Design in ARCHITECTURE §11.
 
-| # | Task | Notes |
+| # | Task | State |
 |---|---|---|
-| 5.1 | **Template engine** — declared required fields, calculations, charts, evidence blocks, approval metadata | A template is *data*: versioned, diffable, and owned by the people who own the report format |
-| 5.2 | Production Summary template → `.docx` with charts and a sources appendix | The everyday report; the one whose time saving is measurable |
-| 5.3 | Parliamentary / Administrative Response template | The PS's named high-priority case |
-| 5.4 | `.xlsx` and `.pptx` export | python-docx / openpyxl / python-pptx — pure Python, offline |
-| 5.5 | **Evidence manifest** — pins every `fact_id`, `document_id@version`, template version, approver | What makes the report reproducible after its sources are revised |
-| 5.6 | Approval workflow: draft → in_review → approved → published; published immutable | |
-| 5.7 | **Reproduce-and-diff** — re-render from an old manifest, diff against current facts | The answer to "why has last year's number changed", which today is a week of archaeology |
-| 5.8 | Click a number in the generated report → open its source page | |
-| 5.9 | A missing required field **fails loudly**; the generator never asks a model for a figure | A parliamentary answer with a plausible invented number is the worst output this system could produce |
-| 5.10 | Narrative sections are optional and checked | Every numeral in generated prose must appear in the pinned facts, or the sentence is stripped and the section flagged |
+| 5.1 | **Template engine** — declared required fields, charts, evidence blocks | ✅ YAML data, versioned; `{{entity}}`/`{{period}}` filled from a normalized context, so one template serves every subsidiary |
+| 5.2 | Production Summary template → `.docx` with a sources appendix | ✅ the appendix lists documents rather than repeating one citation per figure. Server-rendered charts not yet drawn |
+| 5.3 | Parliamentary / Administrative Response template | ⬜ the built-in template is production-summary; a second one is data, not code |
+| 5.4 | `.xlsx` and `.pptx` export | ✅ pure-Python, offline. Excel keeps canonical and printed values in separate columns, because a spreadsheet is where someone sums a column |
+| 5.5 | **Evidence manifest** — pins every `fact_id`, `document_id@version`, template version, approver | ✅ stored whole as JSONB; `entity_id` lifted into an indexed column because every read is scoped |
+| 5.6 | Approval workflow: draft → in_review → approved → published; published immutable | ✅ a table of legal transitions, not an ordering — draft cannot skip review and nothing leaves published. Sending a report back withdraws the approval with it |
+| 5.7 | **Reproduce-and-diff** — re-render from an old manifest, diff against current facts | ✅ `reproduce()` needs no store at all; `diff()` re-resolves each figure and names the version that moved it |
+| 5.8 | Click a number in the generated report → open its source page | 🔄 the locator travels into every format and the UI shows it; the page-raster highlight waits on 2.4 |
+| 5.9 | A missing required field **fails loudly**; the generator never asks a model for a figure | ✅ enforced twice — `ReportIncompleteError` on render, and an import test that forbids the writers from reaching a model |
+| 5.10 | Narrative sections are optional and checked | 🔄 `verify_prose` exists and the query path uses it; wiring it into report narratives is the remaining step |
 
 **Gate.** Re-publish a report from a six-month-old manifest and get byte-identical
 figures, with a diff naming every underlying document that has since been revised. Render
@@ -257,20 +255,20 @@ narrative sections replaced by a stated note.
 
 ---
 
-## Phase 6 — **PS Deliverable 2**: word cloud & topic identification
+## Phase 6 — **PS Deliverable 2**: word cloud & topic identification 🔄
 
 Deliberately compact. The value is the click-through, and overbuilding this module buys
 nothing. Design in ARCHITECTURE §12.
 
-| # | Task | Notes |
+| # | Task | State |
 |---|---|---|
-| 6.1 | **Deterministic keyphrase extraction** — TF-IDF over evidence text with a domain stoplist | No model. Reproducible: the same corpus gives the same cloud, so a reviewer can tell a data change from a model change |
-| 6.2 | Stored per document version as a job output | The cloud is then a table read, not a corpus scan |
-| 6.3 | Optional embedding clustering into named topics (`ml` extra) | Absent the extra, phrases stand alone — the feature degrades, it does not break |
-| 6.4 | Word cloud (`d3-cloud`) with fiscal-year / subsidiary / document-class filters | Filters are part of the query, not a post-filter on a rendered image |
-| 6.5 | **Sized by document frequency**, raw count on hover | One repetitive annexure must not dominate the corpus with its own boilerplate |
-| 6.6 | Term → documents → pages → evidence drill-through | |
-| 6.7 | Longitudinal topic prevalence across fiscal years | |
+| 6.1 | **Deterministic keyphrase extraction** — TF-IDF over evidence text with a domain stoplist | ✅ no model, and no stemmer either: stemming would merge `mining` into `mine` and a reviewer would click a term to find documents that never contain it |
+| 6.2 | Stored per document version as a job output | ✅ stored in `document_keyphrases`, replaced per version so a re-run produces the same table rather than a second copy |
+| 6.3 | Optional embedding clustering into named topics (`ml` extra) | ⬜ pass 1 stands alone, which is the designed degradation |
+| 6.4 | Word cloud with fiscal-year / subsidiary / document-class filters | ✅ filters are part of the query — narrowing to a year *re-weights* the cloud. Laid out in plain SVG rather than `d3-cloud`: no new dependency to licence-review or vendor offline |
+| 6.5 | **Sized by document frequency**, raw count on hover | ✅ `COUNT(DISTINCT document_id)`, with the raw count kept beside it because the two answer different questions |
+| 6.6 | Term → documents → pages → evidence drill-through | ✅ term → documents is a route and a test asserts no term is a dead end; the documents view carries it to the page |
+| 6.7 | Longitudinal topic prevalence across fiscal years | ✅ `/topics/{term}/prevalence` |
 
 **Gate.** Every term in the cloud reaches a specific page. No term is a dead end. The
 cloud is built from the caller's scope — a term appearing only in another subsidiary's

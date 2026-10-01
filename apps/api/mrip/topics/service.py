@@ -17,6 +17,7 @@ when the drift matters and a reviewer wants the cloud rebuilt exactly.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 import sqlalchemy as sa
@@ -71,7 +72,7 @@ def extract_for_document(
     Idempotent: re-running replaces this version's rows rather than adding a
     second set, the same contract every ingestion stage keeps.
     """
-    texts = (
+    texts: Sequence[str | None] = (
         store.connection.execute(
             sa.select(evidence.c.text)
             .where(
@@ -122,7 +123,7 @@ def recompute_corpus(store: Store, *, limit: int = 60) -> dict[str, int]:
 
     tokenized: dict[tuple[str, int], list[str]] = {}
     for document_id, version in versions:
-        texts = (
+        texts: Sequence[str | None] = (
             store.connection.execute(
                 sa.select(evidence.c.text)
                 .where(

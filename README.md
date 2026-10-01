@@ -27,13 +27,20 @@ total beside its parts double-counts every aggregate computed from it.
 
 | # | Deliverable | What makes it more than a feature | State |
 |---|---|---|---|
-| 1 | **Automated Report Generation Platform** | A published report **pins its evidence** — every figure records the `fact_id` and `document@version` behind it, so the same report re-renders a year later and diffs against what the corpus says now | Designed ([ARCHITECTURE §11](docs/ARCHITECTURE.md)); the fact store and traceability it stands on are built |
-| 2 | **Word Cloud & Topic Identification** | Every term is **click-through to the pages that produced it**, sized by document frequency, and built from the caller's access scope | Designed (§12); the evidence index it reads is built |
-| 3 | **AI-Based Query & Response System** | The **exact-figure path has no model client in it** — questions with a numeric answer are answered by SQL over facts; the model writes prose around figures it was handed and cannot introduce a citation | Designed (§13); lexical retrieval is built |
+| 1 | **Automated Report Generation Platform** | A published report **pins its evidence** — every figure records the `fact_id` and `document@version` behind it, so the same report re-renders a year later and diffs against what the corpus says now | **Built** ([ARCHITECTURE §11](docs/ARCHITECTURE.md)) — manifests persisted, `draft → in_review → approved → published`, `.docx`/`.xlsx`/`.pptx`/Markdown, reproduce-and-diff |
+| 2 | **Word Cloud & Topic Identification** | Every term is **click-through to the pages that produced it**, sized by document frequency, and built from the caller's access scope | **Built** (§12) — deterministic TF-IDF with a domain stoplist, scope-aware cloud, term → documents → pages drill-through |
+| 3 | **AI-Based Query & Response System** | The **exact-figure path has no model client in it** — questions with a numeric answer are answered by SQL over facts; the model writes prose around figures it was handed and cannot introduce a citation | **Built** (§13) — five intents routed, streaming narrative, structured refusals. Vector half of hybrid retrieval still lexical-only |
 
 Underneath all three is the part that is finished and tested: ingestion, extraction into
 evidence-backed facts, normalization, validation, the conflict radar, identity with
 row-level scope, and an append-only audit trail.
+
+**What that looks like in practice.** Asked for a SECL production report, the generator
+refused to pin the figure — two statements claim 191.5 and 193 Mt and no reviewer had
+chosen between them, so the manifest named the field and the download was refused rather
+than emitting a blank or a guess. After a reviewer resolved the conflict, the same request
+pinned `193,000,000 t` to `p.1 p1t1 r1c2` and rendered in all four formats. That refusal
+is the product, not an edge case.
 
 **On the percentages the PS asks for** — report-time reduction, extraction accuracy,
 automation rate — this repository publishes none of them yet, and
@@ -49,7 +56,7 @@ own reading.
 
 ![MRIP architecture — evidence-first, from browser to fact store](docs/architecture.svg)
 
-> Solid boxes are **built and tested** (388 tests against a real PostgreSQL); dashed boxes
+> Solid boxes are **built and tested** (466 tests against a real PostgreSQL); dashed boxes
 > are **designed** and on the roadmap. The full diagram is
 > [`docs/architecture.svg`](docs/architecture.svg).
 
@@ -319,6 +326,9 @@ apps/api/                 FastAPI + workers (one image, three entrypoints)
       pipeline.py         One job handler per stage
     facts/extract.py      Table cells → facts, refusing what it cannot resolve
     validate/rules.py     Domain rules that route figures to review, never correct them
+    query/                The five intents. exact.py and compare.py reach no model.
+    reports/              Templates as data, manifests that pin evidence, four writers
+    topics/               Deterministic TF-IDF keyphrases — no model, reproducible
     db/
       tables.py           SQLAlchemy Core schema; the constraints are the argument
       repositories/       One per aggregate, each requiring an access scope
@@ -353,8 +363,8 @@ fail the build. CI publishes a full licence inventory on every commit.
 
 ## Current state
 
-**388 tests green in ~40 s** against PostgreSQL 17.11 + pgvector 0.8.6 · ruff and
-`mypy --strict` clean across 61 modules · migrations round-trip with zero schema drift ·
+**466 tests green in ~39 s** against PostgreSQL 17.11 + pgvector 0.8.6 · ruff and
+`mypy --strict` clean across 80 modules · migrations round-trip with zero schema drift ·
 the frontend builds and serves end to end.
 
 Working today: identity and row-level scope, the append-only audit trail, the job queue
