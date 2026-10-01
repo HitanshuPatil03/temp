@@ -70,10 +70,10 @@ screenshot**.
 | Metric lexicon + table extractor (`mrip/normalize`, `mrip/facts`) | 899 | ✅ refuses what it cannot resolve |
 | Validation rules (`mrip/validate/rules.py`) | 325 | ✅ five domain rules |
 | Backend total | **14,500** | ruff + mypy strict clean |
-| Test suite | 5,100 | ✅ **466 passing in ~39 s** |
+| Test suite | 5,100 | ✅ **515 passing in ~46 s** |
 | Frontend (light theme, 9 surfaces, sign-in, upload, session proxy) | 5,300 | ✅ build green |
 
-**466 tests green** against PostgreSQL 17.11 + pgvector 0.8.6. The normalizers and
+**515 tests green** against PostgreSQL 17.11 + pgvector 0.8.6. The normalizers and
 schemas are storage-independent and carried forward untouched; `db.py` (664 lines of
 DuckDB) was the one component the PostgreSQL decision rewrote, as ARCHITECTURE §12
 predicted.
@@ -108,7 +108,7 @@ migrations exist; retrofitting any of the three is a rewrite.
 | 0.13 | Frontend shell: light-theme tokens, primitives, API client, all five surfaces wired | ✅ done — dashboard, documents, facts, conflicts, normalizer |
 | 0.14 | **Frontend session handling** | ✅ done — the token lives in an httpOnly cookie and `src/proxy.ts` turns it into a bearer header server-side, so no script in the browser can read a credential; sign-in is a Server Function, and a temporary password can reach only the change-password page |
 
-**Status:** 466 tests green in ~39 s against PostgreSQL 17.11 + pgvector 0.8.6 ·
+**Status:** 515 tests green in ~39 s against PostgreSQL 17.11 + pgvector 0.8.6 ·
 ruff clean · mypy strict clean on 48 modules · zero schema drift ·
 `mrip-scheduler` elects itself and enqueues, `mrip-worker` drains ·
 sign-in verified in a browser through Next → proxy → FastAPI → Postgres, with an
@@ -191,6 +191,7 @@ Where the product's claim is either true or it isn't.
 | 3.3 | Evidence linkage enforced by a **foreign key** | ✅ composite FK to `documents(document_id, version)`; a fact with no citable source cannot be inserted |
 | 3.4 | Validation rules | 🔄 five domain rules (negative values, implausible magnitude, production vs capacity, offtake vs production, year-on-year swing). Cross-total reconciliation against the CIL total is not written |
 | 3.5 | Conflict detection + resolution with the reviewer's identity and reason | ✅ resolution is audited with the reviewer's id; losers become `rejected`, not `superseded` |
+| 3.5b | **Review queue is actionable** — validate / correct / reject a needs-review fact | ✅ `POST /facts/{id}/review`, reviewer-gated and audited, with a UI on the facts page. Previously a low-confidence fact could only leave the queue through a conflict, so the dashboard counted a queue nobody could clear |
 | 3.6 | **Gold corpus** — 50+ public documents with ground-truth facts | ⬜ the one item that cannot be faked. The documents are in hand — 3,404 published ones, catalogued in `data/corpus/manifest.json` — so what is missing is the *ground truth*: a person transcribing the figures a document really states, independently of what the extractor read |
 | 3.7 | **Accuracy harness in CI** with failing thresholds | ⬜ blocked on 3.6, and deliberately so: an accuracy number scored against our own reading of a document measures nothing |
 
