@@ -11,6 +11,7 @@ or period is a real answer, not an error to paper over with a guess.
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -42,10 +43,24 @@ def normalize_quantity_endpoint(
     The response keeps the raw pair alongside the canonical one so a caller can
     show what the document said as well as what it means.
     """
+    # A float query param accepts nan/inf (Pydantic allows them by default), and
+    # both JSON-serialise to tokens that are not valid JSON — a strict client, or
+    # the Next proxy's own parse, rejects the response. Refuse the input, and
+    # guard the computed result against an overflow to infinity, rather than
+    # emitting a figure no standards-compliant reader can parse.
+    if not math.isfinite(value):
+        raise HTTPException(
+            status_code=422, detail="value must be a finite number (not NaN or infinity)"
+        )
     try:
         quantity = normalize_quantity(value, unit, mt_convention=mt_convention)
     except UnknownUnitError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if not math.isfinite(quantity.value):
+        raise HTTPException(
+            status_code=422,
+            detail="the converted value overflowed to infinity; the input is too large",
+        )
     return {
         "value": quantity.value,
         "unit": quantity.unit,
