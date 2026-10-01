@@ -27,6 +27,7 @@ from datetime import datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from mrip.api.deps import (
@@ -182,7 +183,7 @@ def login(
     request: Request,
     store: StoreDep,
     caller_ip: SourceIpDep,
-) -> SessionResponse:
+) -> SessionResponse | JSONResponse:
     """Exchange a username and password for an access token.
 
     Returns 401 with the same message for every kind of failure — unknown user,
@@ -209,9 +210,17 @@ def login(
         }
         if outcome.locked_until is not None:
             detail["locked_until"] = outcome.locked_until.isoformat()
-        raise HTTPException(
+        # Return the 401, do not raise it. authenticate() has just written the
+        # failed-attempt counter and the auth.login_failed audit row to this
+        # request's transaction, and raising an HTTPException propagates through
+        # provide_store's `engine.begin()` as an error — which rolls the whole
+        # transaction back, discarding exactly those writes. The lockout would
+        # then never engage (unbounded password guesses) and no failed login
+        # would ever be audited. Returning a Response is a clean exit, so the
+        # transaction commits and the throttling control actually works.
+        return JSONResponse(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=detail,
+            content={"detail": detail},
             headers={"WWW-Authenticate": "Bearer"},
         )
 
