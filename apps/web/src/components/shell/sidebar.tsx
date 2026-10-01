@@ -52,6 +52,15 @@ const NAV = [
   { href: "/topics", label: "Topics", icon: Hash, hint: "Word cloud, indexed" },
 ] as const;
 
+//: Shown only to administrators. Hiding it is courtesy — every /admin route and
+//: the API behind it enforce the admin role server-side regardless.
+const ADMIN_NAV = {
+  href: "/admin",
+  label: "Administration",
+  icon: ShieldCheck,
+  hint: "Users and the audit trail",
+} as const;
+
 function describeScope(user: CurrentUser): string {
   if (user.entities.includes("*")) return "All entities";
   if (user.entities.length === 0) return "No entities granted";
@@ -60,6 +69,7 @@ function describeScope(user: CurrentUser): string {
 
 export function Sidebar({ user }: { user: CurrentUser }) {
   const pathname = usePathname();
+  const nav = user.role === "admin" ? [...NAV, ADMIN_NAV] : NAV;
 
   return (
     <nav
@@ -75,7 +85,7 @@ export function Sidebar({ user }: { user: CurrentUser }) {
         </p>
       </div>
 
-      {NAV.map(({ href, label, icon: Icon, hint }) => {
+      {nav.map(({ href, label, icon: Icon, hint }) => {
         const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
         return (
           <Link
