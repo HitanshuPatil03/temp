@@ -17,16 +17,17 @@ import { FileSearch, Table2 } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useMemo, useState } from "react";
-import useSWR from "swr";
+import useSWR, { useSWRConfig } from "swr";
 
 import { PageHeader } from "@/components/shell/page-header";
 import { AmbiguityBadge, Badge, StatusBadge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, Input, Select } from "@/components/ui/input";
 import { Meter } from "@/components/ui/stat";
 import { EmptyState, ErrorState, Refetching, Skeleton } from "@/components/ui/states";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
-import { ApiError, fetcher, keys } from "@/lib/api";
+import { ApiError, api, fetcher, keys } from "@/lib/api";
 import {
   entityLabel,
   formatDate,
@@ -57,6 +58,7 @@ export default function FactsPage() {
 
 function FactsView() {
   const params = useSearchParams();
+  const { mutate } = useSWRConfig();
   const summary = useSWR<DashboardSummary>(keys.summary(), fetcher);
 
   const [entityId, setEntityId] = useState("");
@@ -250,7 +252,15 @@ function FactsView() {
             </CardBody>
           </Card>
 
-          <EvidencePanel fact={selected} reviewThreshold={reviewThreshold} />
+          <EvidencePanel
+            fact={selected}
+            reviewThreshold={reviewThreshold}
+            onReviewed={(updated) => {
+              setSelected(updated);
+              void mutate((key) => typeof key === "string" && key.startsWith("/facts"));
+              void mutate(keys.summary());
+            }}
+          />
         </div>
       </main>
     </>
@@ -260,9 +270,11 @@ function FactsView() {
 function EvidencePanel({
   fact,
   reviewThreshold,
+  onReviewed,
 }: {
   fact: Fact | null;
   reviewThreshold?: number;
+  onReviewed: (updated: Fact) => void;
 }) {
   if (!fact) {
     return (
@@ -391,7 +403,119 @@ function EvidencePanel({
             {fact.notes}
           </p>
         ) : null}
+
+        <ReviewActions fact={fact} onReviewed={onReviewed} />
       </CardBody>
     </Card>
+  );
+}
+
+/**
+ * The reviewer's actions on a fact in the queue. Shown only for a fact awaiting
+ * review (needs_review or extracted): a settled fact is a decision, not an open
+ * item. This is the surface the audit found missing — the dashboard counted a
+ * review queue nobody could act on. Validate accepts, reject marks it wrong,
+ * correct replaces the canonical value while the raw receipt stays. An officer
+ * below reviewer gets a 403 from the API, surfaced here as a plain message
+ * rather than a dead button.
+ */
+function ReviewActions({
+  fact,
+  onReviewed,
+}: {
+  fact: Fact;
+  onReviewed: (updated: Fact) => void;
+}) {
+  const [pending, setPending] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [correcting, setCorrecting] = useState(false);
+  const [value, setValue] = useState("");
+
+  if (fact.status !== "needs_review" && fact.status !== "extracted") {
+    return null;
+  }
+
+  async function act(
+    decision: "validate" | "correct" | "reject",
+    correctedValue?: number,
+  ) {
+    setPending(decision);
+    setError(null);
+    try {
+      const updated = await api.reviewFact(fact.fact_id, decision, { correctedValue });
+      onReviewed(updated);
+    } catch (cause) {
+      setError(
+        cause instanceof ApiError
+          ? cause.status === 403
+            ? "Adjudicating a fact needs the reviewer role."
+            : cause.detail
+          : "Could not record the decision.",
+      );
+    } finally {
+      setPending(null);
+    }
+  }
+
+  return (
+    <div className="space-y-2 rounded-md border border-hairline bg-plane/50 p-3">
+      <p className="text-xs font-medium text-ink-2">Review</p>
+      <p className="text-xs leading-relaxed text-ink-3">
+        This figure is awaiting review. Accept it, correct the value, or reject
+        it — the decision is recorded with your name.
+      </p>
+      {correcting ? (
+        <div className="space-y-2">
+          <Input
+            inputMode="decimal"
+            placeholder={`corrected value in ${fact.unit}`}
+            value={value}
+            onChange={(event) => setValue(event.target.value)}
+          />
+          <div className="flex gap-2">
+            <Button
+              onClick={() => act("correct", Number(value))}
+              pending={pending === "correct"}
+              disabled={value.trim() === "" || Number.isNaN(Number(value))}
+            >
+              Save correction
+            </Button>
+            <button
+              type="button"
+              onClick={() => setCorrecting(false)}
+              className="rounded-md px-2 py-1 text-xs text-ink-2 hover:text-ink"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={() => act("validate")} pending={pending === "validate"}>
+            Validate
+          </Button>
+          <button
+            type="button"
+            onClick={() => setCorrecting(true)}
+            className="rounded-md border border-hairline px-2.5 py-1.5 text-xs text-ink-2 transition-colors hover:bg-surface hover:text-ink"
+          >
+            Correct…
+          </button>
+          <button
+            type="button"
+            onClick={() => act("reject")}
+            disabled={pending === "reject"}
+            className="rounded-md border border-hairline px-2.5 py-1.5 text-xs text-amber-700 transition-colors hover:bg-amber-50 disabled:opacity-50"
+          >
+            Reject
+          </button>
+        </div>
+      )}
+      {error ? (
+        <p className="text-xs text-amber-700" role="status">
+          {error}
+        </p>
+      ) : null}
+    </div>
   );
 }

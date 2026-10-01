@@ -77,9 +77,15 @@ export default function TopicsPage() {
     setNotice(null);
     try {
       const result = await api.extractTopics();
+      // The recompute now runs as a background job, so the cloud updates when a
+      // worker picks it up rather than before this returns — say so instead of
+      // reporting counts that are not ready yet.
       setNotice(
-        `Extracted ${formatNumber(result.terms_written)} keyphrases from ` +
-          `${formatNumber(result.documents)} documents.`,
+        result.status === "scheduled"
+          ? "Corpus-wide re-extraction scheduled — the cloud updates once a " +
+              "worker runs it. Day to day it is kept current as documents are " +
+              "ingested."
+          : "Re-extraction requested.",
       );
       await mutate((key) => typeof key === "string" && key.startsWith("/topics"));
     } catch (cause) {

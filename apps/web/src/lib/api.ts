@@ -184,6 +184,26 @@ export const api = {
       },
     ),
 
+  /**
+   * Adjudicate a fact in the review queue. The counterpart to resolveConflict,
+   * for a low-confidence fact that is not in a conflict: validate accepts it,
+   * reject marks it wrong, correct replaces the canonical value (keeping the raw
+   * receipt). Reviewer role; recorded in the audit log.
+   */
+  reviewFact: (
+    factId: string,
+    decision: "validate" | "correct" | "reject",
+    opts?: { note?: string; correctedValue?: number },
+  ) =>
+    request<Fact>(`/facts/${factId}/review`, {
+      method: "POST",
+      body: JSON.stringify({
+        decision,
+        note: opts?.note || null,
+        corrected_value: opts?.correctedValue ?? null,
+      }),
+    }),
+
   // --------------------------------------------------------- normalizers
   quantity: (value: number, unit: string, mtConvention?: MTConvention) =>
     request<NormalizedQuantity>("/normalize/quantity", {
@@ -237,7 +257,7 @@ export const api = {
     request<TermPrevalence[]>(`/topics/${encodeURIComponent(term)}/prevalence`),
 
   extractTopics: () =>
-    request<{ documents: number; terms_written: number; terms_in_scope: number }>(
+    request<{ status: string; job_id: string; terms_in_scope: number }>(
       "/topics/extract",
       { method: "POST" },
     ),
