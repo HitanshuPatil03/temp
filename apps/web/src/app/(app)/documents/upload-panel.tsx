@@ -16,16 +16,23 @@
  * **It says when nothing happened.** Re-uploading identical bytes is a no-op by
  * design, and the response says so. Silence there would look like a failure and
  * produce a second attempt.
+ *
+ * **It can record a correction.** CIL reissues statements — a provisional monthly
+ * figure replaced by the audited annual one. Naming the document being replaced
+ * retires its figures instead of leaving two live versions for the conflict radar
+ * to flag as a disagreement between sources. The picker lists documents rather
+ * than asking for an id, because nobody types `doc_7f3a…` from memory.
  */
 
 import { useRef, useState } from "react";
 import { AlertTriangle, CheckCircle2, Info, Upload } from "lucide-react";
-import { useSWRConfig } from "swr";
+import useSWR, { useSWRConfig } from "swr";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, Input, Select } from "@/components/ui/input";
-import { keys } from "@/lib/api";
+import { fetcher, keys } from "@/lib/api";
+import type { MripDocument } from "@/lib/types";
 
 interface Accepted {
   document_id: string;
@@ -35,6 +42,8 @@ interface Accepted {
   state: string;
   created: boolean;
   notes: string[];
+  supersedes: string | null;
+  facts_superseded: number;
 }
 
 interface Refusal {
@@ -50,6 +59,13 @@ export function UploadPanel() {
   const [accepted, setAccepted] = useState<Accepted | null>(null);
   const [refused, setRefused] = useState<Refusal | null>(null);
 
+  // Only documents that finished ingesting can be superseded: replacing one that
+  // is still processing, or that failed, would retire figures it never produced.
+  const { data: documents } = useSWR<MripDocument[]>(keys.documents(), fetcher);
+  const replaceable = (documents ?? []).filter(
+    (document) => document.state === "ready",
+  );
+
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const element = event.currentTarget;
@@ -57,6 +73,11 @@ export function UploadPanel() {
     if (!(data.get("file") as File)?.size) {
       setRefused({ error: "no_file", message: "Choose a file to upload." });
       return;
+    }
+    // An empty select must not be sent as the literal string "", which the API
+    // would read as a document id and refuse with a 404.
+    if (!data.get("supersedes")) {
+      data.delete("supersedes");
     }
 
     setPending(true);
@@ -140,6 +161,21 @@ export function UploadPanel() {
             <Input name="title" placeholder="optional" />
           </Field>
 
+          <Field
+            label="Replaces"
+            hint="Only for a reissue or correction. The old version's figures are retired, not deleted."
+          >
+            <Select name="supersedes" defaultValue="">
+              <option value="">Nothing — this is a new document</option>
+              {replaceable.map((document: MripDocument) => (
+                <option key={document.document_id} value={document.document_id}>
+                  {document.title || document.filename}
+                  {document.fiscal_year ? ` · ${document.fiscal_year}` : ""}
+                </option>
+              ))}
+            </Select>
+          </Field>
+
           <div className="flex items-center gap-3">
             <Button type="submit" variant="primary" pending={pending}>
               <Upload className="size-3.5" aria-hidden />
@@ -195,6 +231,19 @@ export function UploadPanel() {
                   {note}
                 </p>
               ))}
+              {accepted.supersedes ? (
+                <p className="mt-1 text-ink-3">
+                  Recorded as replacing{" "}
+                  <span className="font-mono">{accepted.supersedes}</span>.{" "}
+                  {accepted.facts_superseded > 0
+                    ? `${accepted.facts_superseded} ${
+                        accepted.facts_superseded === 1 ? "figure" : "figures"
+                      } from that version ${
+                        accepted.facts_superseded === 1 ? "is" : "are"
+                      } retired — still on the record, no longer offered as an answer.`
+                    : "That version had no figures to retire."}
+                </p>
+              ) : null}
             </div>
           </div>
         ) : null}
