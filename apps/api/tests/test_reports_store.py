@@ -18,6 +18,7 @@ from mrip.db import Store
 from mrip.db.repositories.reports import (
     LEGAL_TRANSITIONS,
     IllegalReportTransitionError,
+    SelfApprovalError,
 )
 from mrip.reports.generate import generate
 from mrip.reports.render import ReportIncompleteError
@@ -144,6 +145,49 @@ def test_sending_a_report_back_withdraws_its_approval(
     store.reports.transition(
         report_id, ReportState.APPROVED, SCOPE, actor_user_id=second.user_id
     )
+
+
+def test_the_generator_cannot_approve_their_own_report(
+    store: Store, make_fact, make_user
+) -> None:
+    """Separation of duties — the one account that ran the report may not also
+    sign it off. The approval step exists precisely so two people are involved."""
+    officer = make_user("o.officer")
+    manifest = _stored(store, make_fact, generated_by=officer.user_id)
+    report_id = manifest.report_id
+    store.reports.transition(report_id, ReportState.IN_REVIEW, SCOPE)
+
+    with pytest.raises(SelfApprovalError, match="cannot also approve"):
+        store.reports.transition(
+            report_id, ReportState.APPROVED, SCOPE, actor_user_id=officer.user_id
+        )
+
+    # A different approver signs it off without complaint.
+    other = make_user("a.approver")
+    approved = store.reports.transition(
+        report_id, ReportState.APPROVED, SCOPE, actor_user_id=other.user_id
+    )
+    assert approved.state is ReportState.APPROVED
+
+
+def test_self_approval_can_be_disabled_for_a_single_approver_deployment(
+    store: Store, make_fact, make_user
+) -> None:
+    """A deployment with genuinely one approver turns the control off on the
+    record, rather than discovering it was never enforced."""
+    officer = make_user("o.officer")
+    manifest = _stored(store, make_fact, generated_by=officer.user_id)
+    report_id = manifest.report_id
+    store.reports.transition(report_id, ReportState.IN_REVIEW, SCOPE)
+
+    approved = store.reports.transition(
+        report_id,
+        ReportState.APPROVED,
+        SCOPE,
+        actor_user_id=officer.user_id,
+        require_separate_approver=False,
+    )
+    assert approved.state is ReportState.APPROVED
 
 
 def test_published_is_terminal_in_the_transition_table() -> None:

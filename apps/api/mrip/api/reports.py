@@ -31,7 +31,7 @@ from pydantic import BaseModel, Field
 
 from mrip.api.deps import ScopeDep, SourceIpDep, StoreDep, require_role
 from mrip.auth.principal import Principal
-from mrip.db.repositories.reports import IllegalReportTransitionError
+from mrip.db.repositories.reports import IllegalReportTransitionError, SelfApprovalError
 from mrip.llm import client_from_settings
 from mrip.reports.generate import diff as diff_manifest
 from mrip.reports.generate import generate
@@ -227,12 +227,22 @@ def transition_report(
     """
     try:
         manifest = store.reports.transition(
-            report_id, body.state, scope, actor_user_id=approver.user_id
+            report_id,
+            body.state,
+            scope,
+            actor_user_id=approver.user_id,
+            require_separate_approver=store.settings.require_separate_approver,
         )
     except LookupError as missing:
         raise HTTPException(
             status_code=404, detail=f"No report {report_id!r}"
         ) from missing
+    except SelfApprovalError as self_approval:
+        # 409, not 403: the caller holds the right role, the report is simply
+        # not theirs to sign off. A 403 would read as "you lack permission",
+        # which would send an approver to an administrator instead of to a
+        # colleague.
+        raise HTTPException(status_code=409, detail=str(self_approval)) from self_approval
     except IllegalReportTransitionError as illegal:
         raise HTTPException(status_code=409, detail=str(illegal)) from illegal
 
