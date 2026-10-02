@@ -364,6 +364,70 @@ def test_reclaiming_an_exhausted_job_dead_letters_it(queue):
     assert queue.get(enqueued.job.job_id).state is JobState.DEAD
 
 
+def test_reclaiming_an_exhausted_job_reconciles_its_document(store, make_document):
+    """A worker killed mid-OCR is the common way a document half-processes.
+
+    The job is reclaimed, not failed by a handler, so without the hook on this
+    path the document stays in its intermediate state forever — no officer sees
+    it, the dashboard counts it as in-flight, and the retry button never appears.
+    """
+    from mrip.auth.scope import Scope
+    from mrip.ingest import pipeline  # noqa: F401 — registers the failure hooks
+    from mrip.schemas import DocumentState
+
+    scope = Scope.unrestricted("test")
+    document = make_document("killed_mid_ocr.pdf")
+    store.register_document(document)
+    store.documents.set_state(document.document_id, DocumentState.DIGITIZED)
+
+    queue = JobQueue(store.connection)
+    enqueued = queue.enqueue(
+        "document.digitize", {"document_id": document.document_id}, max_attempts=1
+    )
+    queue.claim(WORKER_A)
+    queue._conn.execute(
+        sa.update(jobs)
+        .where(jobs.c.job_id == enqueued.job.job_id)
+        .values(lease_expires_at=sa.func.now() - timedelta(minutes=1))
+    )
+    queue.reclaim_expired()
+
+    reloaded = store.get_document(document.document_id, scope)
+    assert reloaded.state is DocumentState.FAILED
+    assert reloaded.failed_stage == "digitize"
+
+
+def test_reclaiming_a_job_with_attempts_left_leaves_its_document_alone(
+    store, make_document
+):
+    """The mirror: a reclaimed job that still has attempts must not mark its
+    document failed, because the next attempt may well succeed."""
+    from mrip.auth.scope import Scope
+    from mrip.ingest import pipeline  # noqa: F401 — registers the failure hooks
+    from mrip.schemas import DocumentState
+
+    scope = Scope.unrestricted("test")
+    document = make_document("slow_but_alive.pdf")
+    store.register_document(document)
+    store.documents.set_state(document.document_id, DocumentState.DIGITIZED)
+
+    queue = JobQueue(store.connection)
+    enqueued = queue.enqueue(
+        "document.digitize", {"document_id": document.document_id}, max_attempts=3
+    )
+    queue.claim(WORKER_A)
+    queue._conn.execute(
+        sa.update(jobs)
+        .where(jobs.c.job_id == enqueued.job.job_id)
+        .values(lease_expires_at=sa.func.now() - timedelta(minutes=1))
+    )
+    queue.reclaim_expired()
+
+    assert queue.get(enqueued.job.job_id).state is JobState.PENDING
+    reloaded = store.get_document(document.document_id, scope)
+    assert reloaded.state is DocumentState.DIGITIZED
+
+
 def test_a_live_lease_is_not_reclaimed(queue):
     queue.enqueue("document.digitize")
     queue.claim(WORKER_A, lease_seconds=600)

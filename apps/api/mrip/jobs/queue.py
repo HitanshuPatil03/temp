@@ -411,21 +411,44 @@ class JobQueue:
         The safety net behind "a worker is killable at any instant". Runs from the
         scheduler rather than a worker, so a worker that hangs without dying
         cannot also be responsible for noticing.
-        """
-        expired = (
-            sa.select(jobs.c.job_id)
-            .where(
-                jobs.c.state == JobState.CLAIMED.value,
-                jobs.c.lease_expires_at < sa.func.now(),
-            )
-            .order_by(jobs.c.lease_expires_at)
-            .limit(limit)
-            .with_for_update(skip_locked=True)
-        )
 
+        A job that exhausts its attempts here is dead-lettered exactly as
+        :meth:`fail` would, so the terminal-failure hook fires for it too. That
+        path matters as much as the first: the common way a document
+        half-processes is a worker killed mid-OCR, whose job is *reclaimed*, not
+        failed by a handler — and the document would otherwise stay in
+        ``digitized``-and-a-half forever with nobody told.
+        """
+        rows = (
+            self._conn.execute(
+                sa.select(
+                    jobs.c.job_id,
+                    jobs.c.kind,
+                    jobs.c.payload,
+                    jobs.c.attempts,
+                    jobs.c.max_attempts,
+                )
+                .where(
+                    jobs.c.state == JobState.CLAIMED.value,
+                    jobs.c.lease_expires_at < sa.func.now(),
+                )
+                .order_by(jobs.c.lease_expires_at)
+                .limit(limit)
+                .with_for_update(skip_locked=True)
+            )
+            .mappings()
+            .all()
+        )
+        if not rows:
+            return 0
+
+        # The rows are locked by the statement above, so this update acts on
+        # exactly the set that was read — no second scan, and no race with a
+        # worker that reclaims concurrently (it would block on the lock).
+        expiring = [row["job_id"] for row in rows]
         result = self._conn.execute(
             sa.update(jobs)
-            .where(jobs.c.job_id.in_(expired.scalar_subquery()))
+            .where(jobs.c.job_id.in_(expiring))
             .values(
                 state=sa.case(
                     (
@@ -450,6 +473,20 @@ class JobQueue:
                 ),
             )
         )
+
+        # Reconcile only the ones that just dead-lettered. The rest went back to
+        # ``pending`` and still have attempts left, so their document must not be
+        # marked failed while a retry is still coming.
+        reason = (
+            "Lease expired: the worker holding this job stopped reporting. "
+            "No attempts remain, so the job was dead-lettered."
+        )
+        for row in rows:
+            if row["attempts"] >= row["max_attempts"]:
+                _run_hook_if_any(
+                    self._conn, str(row["kind"]), dict(row["payload"]), reason
+                )
+
         return result.rowcount or 0
 
     def prune_finished(self, *, older_than_days: int = 14) -> int:
