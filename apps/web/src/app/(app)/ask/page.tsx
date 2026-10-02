@@ -68,7 +68,25 @@ function modelBadge(modelUsed: boolean): string {
 }
 
 function ProseBlock({ prose, flagged }: { prose: string; flagged: boolean }) {
-  if (!prose) return null;
+  // Prose empty *and* nothing was flagged means the model simply wrote nothing —
+  // there is no story to tell, so render nothing.
+  if (!prose && !flagged) return null;
+
+  // Prose empty *because* everything was flagged is the case that must never be
+  // silent: the verifier rejected every sentence the model produced. Saying so
+  // is the answer. Rendering only the citations underneath, with no note, would
+  // read as "the model had nothing to add" when in fact it was overruled.
+  if (!prose) {
+    return (
+      <p className="flex items-start gap-1.5 text-xs text-warning">
+        <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+        Every sentence the model produced carried a figure that is not in the
+        evidence below, so none of it is shown. The cited facts and passages are
+        the answer; nothing has been paraphrased over them.
+      </p>
+    );
+  }
+
   return (
     <div className="space-y-2">
       <p className="whitespace-pre-wrap text-sm leading-relaxed text-ink">{prose}</p>
@@ -415,7 +433,13 @@ export default function AskPage() {
                 comparison: null,
                 discovery: null,
                 narrative: {
-                  prose: done.prose || proseBuffer,
+                  // Nullish, not `||`. An empty `done.prose` is meaningful: it
+                  // means the verifier dropped every sentence for carrying an
+                  // unsupported numeral. Falling back to `proseBuffer` there
+                  // would show the raw, unverified text — exactly the numerals
+                  // the check exists to remove. Only a *missing* field falls
+                  // back to the buffer.
+                  prose: done.prose ?? proseBuffer,
                   passages: metaPassages,
                   facts: metaFacts,
                   flagged: done.flagged,
