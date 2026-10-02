@@ -52,6 +52,18 @@ def viewer_client(store: Store, make_user, bearer) -> TestClient:
         yield test_client
 
 
+@pytest.fixture
+def approver_client(store: Store, make_user, bearer) -> TestClient:
+    """A second approver — someone other than the account that generated the
+    report, so the four-eyes approval step can actually complete."""
+    app = create_app()
+    app.dependency_overrides[provide_store] = lambda: store
+    app.dependency_overrides[provide_read_only_store] = lambda: store
+    operator = make_user("second.approver", role=Role.APPROVER, entities=(SCOPE_ALL,))
+    with TestClient(app, headers=bearer(operator)) as test_client:
+        yield test_client
+
+
 def _generate(client: TestClient, entity: str = "SECL", period: str = "FY2024-25"):
     return client.post("/api/reports", json={"entity": entity, "period": period})
 
@@ -124,23 +136,53 @@ def test_skipping_review_is_a_409_naming_what_is_allowed(
 
 
 def test_a_report_runs_the_full_lifecycle_over_http(
-    client, store: Store, make_fact
+    client, approver_client, store: Store, make_fact
 ) -> None:
     store.insert_facts([make_fact(status=FactStatus.VALIDATED, unit_ambiguous=False)])
     report_id = _generate(client).json()["report_id"]
 
-    for state in ("in_review", "approved", "published"):
-        response = client.post(
+    # The generator moves it into review; a *different* approver signs it off,
+    # which is what separation of duties requires.
+    assert (
+        client.post(
+            f"/api/reports/{report_id}/transition", json={"state": "in_review"}
+        ).json()["state"]
+        == "in_review"
+    )
+    for state in ("approved", "published"):
+        response = approver_client.post(
             f"/api/reports/{report_id}/transition", json={"state": state}
         )
         assert response.status_code == 200, response.text
         assert response.json()["state"] == state
 
     # Published is terminal.
-    frozen = client.post(
+    frozen = approver_client.post(
         f"/api/reports/{report_id}/transition", json={"state": "in_review"}
     )
     assert frozen.status_code == 409
+
+
+def test_the_generator_cannot_approve_their_own_report_over_http(
+    client, approver_client, store: Store, make_fact
+) -> None:
+    """§11.3 separation of duties, end to end: a self-approval is a 409 that
+    explains itself, while another approver succeeds on the same report."""
+    store.insert_facts([make_fact(status=FactStatus.VALIDATED, unit_ambiguous=False)])
+    report_id = _generate(client).json()["report_id"]
+    client.post(f"/api/reports/{report_id}/transition", json={"state": "in_review"})
+
+    refused = client.post(
+        f"/api/reports/{report_id}/transition", json={"state": "approved"}
+    )
+    assert refused.status_code == 409
+    assert "cannot also approve" in refused.json()["detail"]
+
+    allowed = approver_client.post(
+        f"/api/reports/{report_id}/transition", json={"state": "approved"}
+    )
+    assert allowed.status_code == 200
+    assert allowed.json()["state"] == "approved"
 
 
 def test_an_unknown_report_is_a_404(client) -> None:

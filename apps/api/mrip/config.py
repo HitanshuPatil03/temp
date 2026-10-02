@@ -108,6 +108,15 @@ class Settings(BaseSettings):
     #: difference between two sources.
     conflict_material_spread: float = Field(default=0.005, ge=0.0, le=1.0)
 
+    #: Whether approving a report requires an account other than the one that
+    #: generated it (separation of duties, ARCHITECTURE §11.3). On by default:
+    #: roles are a linear rank, so an approver also satisfies "officer" and could
+    #: otherwise run a parliamentary answer and sign it off alone, which defeats
+    #: the approval step. A deployment with genuinely one approver can turn it
+    #: off — deliberately, and visibly in its configuration, rather than by
+    #: discovering the control was never enforced.
+    require_separate_approver: bool = True
+
     # ----------------------------------------------------------- observability
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     log_format: Literal["console", "json"] = "console"

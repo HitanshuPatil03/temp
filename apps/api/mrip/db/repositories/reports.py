@@ -29,11 +29,27 @@ from mrip.auth.scope import Scope
 from mrip.db.tables import reports
 from mrip.schemas import ReportManifest, ReportState
 
-__all__ = ["LEGAL_TRANSITIONS", "IllegalReportTransitionError", "ReportRepository"]
+__all__ = [
+    "LEGAL_TRANSITIONS",
+    "IllegalReportTransitionError",
+    "ReportRepository",
+    "SelfApprovalError",
+]
 
 
 class IllegalReportTransitionError(RuntimeError):
     """A state change the publish lifecycle does not allow (§11.3)."""
+
+
+class SelfApprovalError(RuntimeError):
+    """The approver is the same person who generated the report.
+
+    Separation of duties. The lifecycle exists so that the officer who runs a
+    report and the approver who signs it off are two people — for a draft
+    parliamentary answer that is the entire point of the approval step, not a
+    formality. Enforced rather than documented, because a control nobody checks
+    is a control that is not there.
+    """
 
 
 #: The publish lifecycle, as the set of moves each state permits. Written as data
@@ -99,11 +115,14 @@ class ReportRepository:
         scope: Scope,
         *,
         actor_user_id: str | None = None,
+        require_separate_approver: bool = True,
     ) -> ReportManifest:
         """Move a report through the publish lifecycle, or refuse.
 
         Raises :class:`IllegalReportTransitionError` when the move is not in
         :data:`LEGAL_TRANSITIONS` — including every move out of ``published``.
+        Raises :class:`SelfApprovalError` when the approver is the account that
+        generated the report and ``require_separate_approver`` is set.
         Raises ``LookupError`` when the report does not exist or is out of scope;
         the caller turns that into the 404 that does not confirm its existence.
         """
@@ -117,6 +136,27 @@ class ReportRepository:
             raise IllegalReportTransitionError(
                 f"A {current.value} report cannot become {target.value}. "
                 f"Allowed from here: {allowed or 'nothing — published is final'}."
+            )
+
+        # Separation of duties, checked at the sign-off and nowhere else. Moving
+        # a report *into* review, or sending it back, is routine handling; the
+        # approval is the decision someone is accountable for, so that is the one
+        # move the generator may not make alone. Roles are a linear rank, so an
+        # approver also satisfies "officer" and can generate — which is exactly
+        # how one account could otherwise run a parliamentary answer and sign it
+        # off with nobody else ever reading it.
+        if (
+            target is ReportState.APPROVED
+            and require_separate_approver
+            and actor_user_id is not None
+            and row["generated_by"] == actor_user_id
+        ):
+            raise SelfApprovalError(
+                "You generated this report, so you cannot also approve it. "
+                "Another approver must sign it off — that separation is what the "
+                "approval step is for. A deployment with a single approver can "
+                "set MRIP_REQUIRE_SEPARATE_APPROVER=false, deliberately and on "
+                "the record."
             )
 
         values: dict[str, Any] = {"state": target.value, "updated_at": sa.func.now()}
