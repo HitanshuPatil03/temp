@@ -143,7 +143,7 @@ Getting a file in, safely and exactly once.
 
 | # | Task | State |
 |---|---|---|
-| 1.1 | Document registry: SHA-256 content addressing, dedup, version chains, supersession | ✅ the hash is of the bytes **after** sanitizing, so it identifies what the corpus holds rather than what was sent |
+| 1.1 | Document registry: SHA-256 content addressing, dedup, version chains, supersession | 🔄 content addressing and dedup are done — the hash is of the bytes **after** sanitizing, so it identifies what the corpus holds rather than what was sent. **Version chains are not reachable:** the column (`supersedes`), the repository method (`mark_superseded`, which also retires the old version's facts) and its test all exist, but no route calls it, so re-uploading a corrected report produces an unlinked second document whose facts compete with the first's in the conflict radar. The officer-facing half — "this replaces document X" on the upload form — is what is missing |
 | 1.2 | Sensitivity labels (`public` / `internal` / `restricted`) | 🔄 stored and set at upload; they do not yet *narrow* access beyond entity scope, and ARCHITECTURE §9 says so rather than implying otherwise |
 | 1.3 | **Upload boundary hardening** | ✅ type by magic number (the filename is the uploader's choice), size cap enforced mid-stream, page cap, encrypted PDF refused, `/OpenAction` + JavaScript + embedded files stripped **and verified gone**, archive expansion ratio and zip-slip refused |
 | 1.4 | **Lifecycle state machine** | ✅ a table of legal transitions, not an ordering — `received → ready` raises rather than lying |
@@ -151,6 +151,7 @@ Getting a file in, safely and exactly once.
 | 1.6 | Per-stage resource ceilings (memory, wall clock) | ⬜ the database side exists (statement and lock timeouts); the per-stage ceiling does not |
 | 1.7 | Progress reporting + pipeline health endpoint | ✅ counters written **outside** the stage's transaction, so "OCR 142/400" is visible while it runs |
 | 1.8 | Retention policy + scheduled enforcement | ⬜ |
+| 1.9 | **A dead ingestion job marks its document failed** | ✅ a job that gives up — a handler calling it permanent, or the attempts running out, whether reported by the worker or reclaimed by the scheduler — now moves its document to `failed` with the stage name and the error, in the same transaction that makes the job terminal. Before this, a dead `document.digitize` left its document at `classified` forever, indistinguishable from one merely slow on a 400-page report: nobody learned the upload had failed, and the figures it should have produced were quietly absent. Registered per job kind in `mrip/jobs/hooks.py` so the queue stays generic |
 
 **Gate.** Killing a worker mid-ingest and resuming produces byte-identical evidence with
 zero duplicates — tested by re-running a stage after forcing the state backwards. A zip
@@ -217,7 +218,7 @@ ARCHITECTURE §13.
 | 4.3 | Lexical retrieval over `evidence.search_vector` | ✅ the discovery route queries it and ranks by `ts_rank`; the index is a **generated** column so it cannot drift |
 | 4.4 | Chunking + local embeddings → pgvector HNSW | ⬜ Embeddings computed on the host; the `ml` extra, not the core |
 | 4.5 | Hybrid fusion (reciprocal rank) | ⬜ Lexical alone misses "offtake" when the page says "despatch"; vector alone misses an exact mine name |
-| 4.6 | **Narrative route** — Ollama + Qwen3 8B over retrieved passages and pinned facts | ✅ streaming, with Thinking mode off by default; citations restricted to what was passed in; a numeral not in the pinned facts is stripped and the answer flagged |
+| 4.6 | **Narrative route** — Ollama + Qwen3 8B over retrieved passages and pinned facts | ✅ streaming, with Thinking mode off by default; citations restricted to what was passed in; a numeral not in the pinned facts is stripped and the answer flagged. Two holes on the *streaming* path are closed: the browser no longer falls back to the raw token buffer when the numeral check rejects every sentence (`done.prose || buffer` → `??`, and a fully-rejected answer now says so instead of rendering blank), and the audit row is written after the stream rather than before it — so a runtime that dies mid-answer is recorded as `stream_failed`, not as a delivered narrative, and the trail carries whether the check edited the prose |
 | 4.7 | Refusal path — ambiguous unit, open conflict, out of corpus, no validated fact | ✅ Structured responses carrying the evidence that caused them, rendered as answers rather than errors |
 | 4.8 | Evidence panel: answer → source page, region highlighted | 🔄 citations resolve to document, page, table and cell; the raster highlight waits on the page cache (2.4) |
 | 4.9 | Gold query set (50+ labelled) + citation-accuracy KPI in CI | ⬜ blocked on the same ground truth as 3.6 |
