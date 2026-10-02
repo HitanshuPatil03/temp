@@ -235,3 +235,94 @@ def test_disabled_client_raises_rather_than_returning_empty() -> None:
     assert client.available is False
     with pytest.raises(LLMUnavailableError):
         client.generate("hello")
+
+
+# ------------------------------------------------------- streaming audit trail
+
+
+class _FakeStreamLLM:
+    """A model that streams tokens, for the SSE path."""
+
+    def __init__(self, tokens: list[str], *, fail_after: int | None = None) -> None:
+        self._tokens = tokens
+        self._fail_after = fail_after
+        self.available = True
+
+    def generate(self, prompt: str, *, system: str | None = None) -> str:
+        return "".join(self._tokens)
+
+    def generate_stream(self, prompt: str, *, system: str | None = None):
+        for index, token in enumerate(self._tokens):
+            if self._fail_after is not None and index >= self._fail_after:
+                raise LLMUnavailableError("runtime died mid-stream")
+            yield token
+
+
+def _stream(client: TestClient, question: str) -> str:
+    with client.stream("POST", "/api/query/stream", json={"question": question}) as reply:
+        return "".join(reply.iter_text())
+
+
+def _query_audits(store: Store) -> list[dict]:
+    return [
+        entry.detail
+        for entry in store.audit.recent(action="query")
+        if entry.detail.get("stream")
+    ]
+
+
+def test_a_stream_audits_what_the_caller_was_actually_shown(
+    client: TestClient, store: Store, make_fact, monkeypatch
+) -> None:
+    """The audit row must be written after the stream, not before it.
+
+    Recorded up front, the trail claimed a narrative answer with
+    ``model_used=true`` no matter what happened next — including a stream that
+    died. This is the record someone reads months later to establish what a
+    figure in a submitted answer rested on, so it has to say what was shown.
+    """
+    store.insert_facts([make_fact(status=FactStatus.VALIDATED)])
+    fake = _FakeStreamLLM(["SECL produced ", "193 MT", " in FY2024-25."])
+    monkeypatch.setattr("mrip.api.query.client_from_settings", lambda _settings: fake)
+
+    body = _stream(client, "why did SECL coal production rise")
+
+    assert "event: done" in body
+    audited = _query_audits(store)
+    assert audited, "a streamed query must leave an audit row"
+    assert audited[0]["answer_kind"] == "narrative"
+    assert audited[0]["model_used"] is True
+    # The numeral check's verdict is now on the trail; it was not before.
+    assert "narrative_flagged" in audited[0]
+    assert audited[0]["stream_error"] is None
+
+
+def test_a_stream_that_dies_is_audited_as_a_failure_not_an_answer(
+    client: TestClient, store: Store, make_fact, monkeypatch
+) -> None:
+    """A runtime that dies mid-stream must not leave 'narrative' on the trail."""
+    store.insert_facts([make_fact(status=FactStatus.VALIDATED)])
+    fake = _FakeStreamLLM(["SECL produced ", "193 MT"], fail_after=1)
+    monkeypatch.setattr("mrip.api.query.client_from_settings", lambda _settings: fake)
+
+    body = _stream(client, "why did SECL coal production rise")
+
+    assert "event: error" in body
+    audited = _query_audits(store)
+    assert audited, "a failed stream must still leave an audit row"
+    assert audited[0]["answer_kind"] == "stream_failed"
+    assert "runtime died mid-stream" in audited[0]["stream_error"]
+
+
+def test_a_stream_records_that_the_numeral_check_removed_something(
+    client: TestClient, store: Store, make_fact, monkeypatch
+) -> None:
+    """Whether prose was edited is part of what a reviewer needs to know."""
+    store.insert_facts([make_fact(status=FactStatus.VALIDATED)])
+    fake = _FakeStreamLLM(["Output leapt to ", "999 crore tonnes."])
+    monkeypatch.setattr("mrip.api.query.client_from_settings", lambda _settings: fake)
+
+    _stream(client, "why did SECL coal production rise")
+
+    audited = _query_audits(store)
+    assert audited[0]["narrative_flagged"] is True
