@@ -16,7 +16,6 @@ from collections.abc import Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from typing import Any
 
-import sqlalchemy as sa
 from sqlalchemy import Connection
 
 from mrip.auth.scope import Scope
@@ -32,7 +31,6 @@ from mrip.db.repositories.facts import FactRepository
 from mrip.db.repositories.keyphrases import KeyphraseRepository
 from mrip.db.repositories.reports import ReportRepository
 from mrip.db.repositories.users import AuditRepository, UserRepository
-from mrip.db.tables import METADATA
 from mrip.schemas import ConflictGroup, Document, DocumentState, Fact, FactStatus
 
 __all__ = ["Store", "new_id", "read_only_store", "store_session"]
@@ -211,25 +209,6 @@ class Store:
             "entities": counts["entities"],
             "metrics": counts["metrics"],
         }
-
-    # ----------------------------------------------------------- maintenance
-
-    def reset(self) -> None:
-        """Empty every table. Test support only.
-
-        ``TRUNCATE … CASCADE`` rather than per-table ``DELETE`` so foreign keys do
-        not dictate an ordering, and ``ALTER TABLE … DISABLE TRIGGER`` because the
-        audit log's append-only trigger blocks ``TRUNCATE`` by design — the one
-        legitimate exception is tearing down a throwaway test database.
-        """
-        if self._settings.is_production:
-            raise RuntimeError("Store.reset() is not available in production.")
-        names = ", ".join(f'"{table}"' for table in reversed(METADATA.sorted_tables))
-        self._conn.execute(sa.text("ALTER TABLE audit_log DISABLE TRIGGER USER"))
-        try:
-            self._conn.execute(sa.text(f"TRUNCATE {names} CASCADE"))
-        finally:
-            self._conn.execute(sa.text("ALTER TABLE audit_log ENABLE TRIGGER USER"))
 
 
 @contextmanager

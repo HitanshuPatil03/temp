@@ -759,7 +759,11 @@ def test_failed_logins_persist_the_lockout_counter_through_the_real_transaction(
             assert len(failed) >= MAX_FAILED_LOGINS  # and every failure was audited
     finally:
         # Self-cleaning: the audit log is append-only by trigger, so removing the
-        # probe's rows needs the same deliberate exception Store.reset documents.
+        # probe's rows means turning that trigger off and on again. Done here,
+        # inline and in a `finally`, rather than through a reusable helper — see
+        # tests/test_architecture.py, which forbids any module under mrip/ from
+        # being able to do this. A test that deliberately commits outside a
+        # transaction has to clean up after itself; shipping code never does.
         with transaction() as conn:
             conn.execute(text("ALTER TABLE audit_log DISABLE TRIGGER USER"))
             try:

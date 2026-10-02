@@ -192,3 +192,60 @@ def test_pipeline_modules_import_cleanly_without_the_optional_extras(module):
     ONNX runtime to start a worker.
     """
     __import__(module)
+
+
+def test_no_application_code_can_disable_the_audit_trigger():
+    """ARCHITECTURE §9 — the audit log is append-only, with no exceptions.
+
+    The guarantee is a database trigger that binds even the table owner, so the
+    only way to defeat it is to turn it off. This test asserts that no module
+    under ``mrip/`` does, which is what turns §9 from "append-only, except where
+    a repository method decides otherwise" into "append-only".
+
+    It exists because there *was* such a method: ``Store.reset()`` truncated every
+    table and disabled this trigger to do it. It had no callers — tests roll their
+    transaction back instead — and its only guard was ``MRIP_PROFILE``, a
+    client-side setting that defaults to ``dev``. A process pointed at a real
+    database with the profile unset would have wiped the one record the
+    architecture promises is immutable.
+
+    Tests may still make the exception locally and visibly (one does, to clean up
+    rows it deliberately committed outside a transaction). Shipping code may not.
+    """
+    offenders: list[str] = []
+    for file in sorted(PACKAGE.rglob("*.py")):
+        source = file.read_text(encoding="utf-8")
+        lowered = source.lower()
+        if "disable trigger" in lowered or "alter table audit_log" in lowered:
+            offenders.append(str(file.relative_to(API_ROOT)))
+
+    assert offenders == [], (
+        "These modules can disable the audit log's append-only trigger:\n  "
+        + "\n  ".join(offenders)
+        + "\nThe trigger is the whole of the §9 guarantee. Correct an audit record "
+        "with a new compensating entry, never by editing or removing one."
+    )
+
+
+def test_the_audit_log_really_refuses_to_be_rewritten(store):
+    """The trigger itself, not just the absence of code that disables it.
+
+    Asserted against a live database because the guarantee is the database's, and
+    a migration that dropped the trigger would otherwise pass every other test in
+    the suite.
+    """
+    import sqlalchemy as sa
+    from sqlalchemy.exc import DatabaseError
+
+    from mrip.db.tables import audit_log
+
+    store.audit.record("architecture.probe", actor_username="probe")
+    recorded = store.audit.recent(limit=1, action="architecture.probe")
+    assert recorded, "the probe row was not written, so this test proves nothing"
+
+    with pytest.raises(DatabaseError, match="append-only"):
+        store.connection.execute(
+            sa.update(audit_log)
+            .where(audit_log.c.action == "architecture.probe")
+            .values(action="architecture.tampered")
+        )
