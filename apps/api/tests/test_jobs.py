@@ -259,6 +259,72 @@ def test_a_permanent_failure_skips_the_remaining_attempts(queue):
     assert job.state is JobState.FAILED
 
 
+# ---------------------------------------------------------------- failure hooks
+
+
+def test_terminal_failure_marks_document_failed(store, make_document):
+    """When a document.* job dead-letters, the document must move to FAILED.
+
+    Before this fix: a dead ingest job left the document in whatever intermediate
+    state the pipeline last wrote (e.g. ``classified``), indistinguishable from
+    one that is merely running slowly. An officer composing a parliamentary answer
+    had no signal that the source document was stuck.
+    """
+    from mrip.auth.scope import Scope
+    from mrip.ingest import pipeline  # noqa: F401 — registers failure hooks
+    from mrip.schemas import DocumentState
+
+    scope = Scope.unrestricted("test")
+    document = make_document("annual_report.pdf")
+    store.register_document(document)
+    store.documents.set_state(document.document_id, DocumentState.CLASSIFIED)
+
+    queue = JobQueue(store.connection)
+    enqueued = queue.enqueue(
+        "document.digitize",
+        {"document_id": document.document_id},
+        max_attempts=1,
+    )
+    queue.claim(WORKER_A)
+    state = queue.fail(enqueued.job.job_id, WORKER_A, "out of memory", permanent=False)
+
+    assert state is JobState.DEAD
+    reloaded = store.get_document(document.document_id, scope)
+    assert reloaded.state is DocumentState.FAILED
+    assert reloaded.failed_stage == "digitize"
+    assert reloaded.failed_reason is not None
+    assert "out of memory" in reloaded.failed_reason
+
+
+def test_a_retry_does_not_prematurely_mark_document_failed(store, make_document):
+    """A job going back to PENDING still has attempts left — the document must
+    not be marked FAILED until those are exhausted, or an officer would see a
+    failure message for a document that is about to succeed on the next attempt."""
+    from mrip.auth.scope import Scope
+    from mrip.ingest import pipeline  # noqa: F401 — registers failure hooks
+    from mrip.schemas import DocumentState
+
+    scope = Scope.unrestricted("test")
+    document = make_document("extract_fail.pdf")
+    store.register_document(document)
+    store.documents.set_state(document.document_id, DocumentState.CLASSIFIED)
+
+    queue = JobQueue(store.connection)
+    enqueued = queue.enqueue(
+        "document.digitize",
+        {"document_id": document.document_id},
+        max_attempts=3,
+    )
+    queue.claim(WORKER_A)
+    state = queue.fail(enqueued.job.job_id, WORKER_A, "transient network error")
+
+    assert state is JobState.PENDING
+    reloaded = store.get_document(document.document_id, scope)
+    assert reloaded.state is DocumentState.CLASSIFIED, (
+        "document must not be marked FAILED when a retry is still coming"
+    )
+
+
 # ----------------------------------------------------------------- reclamation
 
 
