@@ -30,10 +30,12 @@ only becomes visible when the stage finishes is not progress.
 from __future__ import annotations
 
 import tempfile
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
+
+from sqlalchemy import Connection
 
 from mrip import log
 from mrip.auth.scope import Scope
@@ -552,3 +554,77 @@ def index_document(ctx: JobContext) -> None:
     # reason.
     require_transition(DocumentState.INDEXED, DocumentState.READY)
     ctx.store.documents.set_state(document.document_id, DocumentState.READY)
+
+
+# ------------------------------------------------------------- failure hooks
+#
+# When a document.* job gives up permanently — either because the handler said
+# it cannot succeed (PermanentJobError) or because it ran out of attempts
+# (dead-lettered) — the document would otherwise stay in whatever intermediate
+# state the pipeline last set it to, looking identical to one that is merely
+# still running. An officer composing a parliamentary answer has no idea their
+# source document is stuck. These hooks mark the document FAILED so the UI
+# shows it, the dashboard counts it, and the retry button appears.
+#
+# Registered once per stage kind rather than once per stage, because the failed
+# stage name is what the UI shows alongside the error so the officer knows
+# which step to retry. The ``error`` text comes directly from the terminal job
+# row's truncated traceback and is stored as ``failed_reason``.
+
+
+def _mark_document_failed(
+    conn: Connection, payload: dict[str, Any], error: str, stage: str
+) -> None:
+    """Record the document as FAILED with the stage name and error.
+
+    The connection is the job's own terminal transaction, so the state update
+    commits atomically with the job going terminal — no window where the job is
+    dead but the document still looks in-flight.
+    """
+    document_id = payload.get("document_id")
+    if not document_id:
+        return
+
+    from mrip.db.repositories.documents import DocumentRepository
+
+    # DocumentRepository is instantiated directly over the connection — no Store
+    # wrapper needed — because this runs inside the queue's own transaction and
+    # must not open a new one.
+    DocumentRepository(conn).set_state(
+        document_id,
+        DocumentState.FAILED,
+        failed_stage=stage,
+        failed_reason=error[:2000] if error else None,
+    )
+
+
+def _register_ingest_hooks() -> None:
+    """Register a terminal-failure hook for every document.* job kind."""
+    from mrip.jobs.hooks import on_terminal_failure
+
+    for stage in (
+        "classify",
+        "digitize",
+        "extract",
+        "normalize",
+        "validate",
+        "index",
+    ):
+        kind = f"document.{stage}"
+
+        # Capture stage in the default argument to avoid late-binding in the closure.
+        def _make_hook(
+            stage_name: str = stage,
+        ) -> Callable[[Connection, dict[str, Any], str], None]:
+            def _hook(conn: Any, payload: dict[str, Any], error: str) -> None:
+                _mark_document_failed(conn, payload, error, stage_name)
+
+            _hook.__name__ = f"_on_terminal_{stage_name}"
+            return _hook
+
+        on_terminal_failure(kind)(_make_hook())
+
+
+# Run at module import time — the worker imports this module for its stage
+# @handler registrations, so the hooks are registered in the same pass.
+_register_ingest_hooks()

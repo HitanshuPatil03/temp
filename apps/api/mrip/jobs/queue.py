@@ -40,6 +40,25 @@ from sqlalchemy import Connection
 from mrip.db.tables import jobs
 from mrip.schemas import JobState
 
+
+# Imported lazily at call time rather than at module top, so the queue does not
+# import the hooks registry at startup. The hook registry itself imports nothing
+# from this module, so there is no cycle — but making the import conditional on
+# call keeps the queue's own boot path dependency-free.
+def _run_hook_if_any(
+    conn: Connection, kind: str, payload: dict[str, Any], error: str
+) -> None:
+    """Fire the terminal-failure hook for ``kind``, if one is registered.
+
+    Deferred import so a worker that never imports mrip.ingest.pipeline (which
+    is what registers hooks) does not crash on a missing handler — the hook
+    registry returns False for an unregistered kind rather than raising.
+    """
+    from mrip.jobs.hooks import run_terminal_failure_hook
+
+    run_terminal_failure_hook(conn, kind, payload, error)
+
+
 __all__ = [
     "DEFAULT_QUEUE",
     "Enqueued",
@@ -364,6 +383,24 @@ class JobQueue:
         self._conn.execute(
             sa.update(jobs).where(jobs.c.job_id == job_id).values(**values)
         )
+        # Fire the terminal-failure hook only when no further attempt is coming.
+        # PENDING means another try has been scheduled — marking a document
+        # failed while a retry is still coming would falsely alarm an officer.
+        if state in {JobState.FAILED, JobState.DEAD}:
+            payload_row = (
+                self._conn.execute(
+                    sa.select(jobs.c.kind, jobs.c.payload).where(jobs.c.job_id == job_id)
+                )
+                .mappings()
+                .first()
+            )
+            if payload_row is not None:
+                _run_hook_if_any(
+                    self._conn,
+                    str(payload_row["kind"]),
+                    dict(payload_row["payload"]),
+                    error,
+                )
         return state
 
     # ----------------------------------------------------------- maintenance
