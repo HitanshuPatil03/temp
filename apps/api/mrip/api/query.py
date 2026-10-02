@@ -232,24 +232,38 @@ def post_query_stream(
         )
         return resp
 
-    # Snapshot for audit (filled after stream in finally via closure would be ideal;
-    # for prototype we audit as narrative with model_used=true upfront)
-    audit_store.audit.record(
-        "query",
-        actor_user_id=principal.user_id,
-        actor_username=principal.username,
-        subject_type="query",
-        detail={
-            "question": body.question,
-            "intent": routed.intent.value,
-            "answer_kind": "narrative",
-            "model_used": True,
-            "stream": True,
-            "refusal_reason": None,
-        },
-        request_id=getattr(request.state, "request_id", None),
-        source_ip=caller_ip,
-    )
+    # The audit row is written *after* the stream finishes, from inside the
+    # generator, so it records what the caller was actually shown. Auditing
+    # "narrative, model_used=true" up front would have been a lie in two real
+    # cases: the runtime dying mid-stream (the caller got an error, not an
+    # answer), and the verifier rejecting every sentence (the caller got no
+    # prose at all). This is an append-only trail that someone reads months
+    # later to establish what a figure in a submitted answer rested on, so a
+    # convenient approximation is the one thing it must not be.
+    def audit_outcome(
+        *, answer_kind: str, model_used: bool, flagged: bool, error: str | None
+    ) -> None:
+        audit_store.audit.record(
+            "query",
+            actor_user_id=principal.user_id,
+            actor_username=principal.username,
+            subject_type="query",
+            detail={
+                "question": body.question,
+                "intent": routed.intent.value,
+                "answer_kind": answer_kind,
+                "model_used": model_used,
+                "stream": True,
+                "refusal_reason": None,
+                # Whether the numeral check removed anything, and the reason the
+                # stream ended early if it did. Both are the parts a reviewer
+                # reconstructing an answer needs and neither was recorded before.
+                "narrative_flagged": flagged,
+                "stream_error": error,
+            },
+            request_id=getattr(request.state, "request_id", None),
+            source_ip=caller_ip,
+        )
 
     def event_stream() -> Iterator[str]:
         # meta first so UI can show citations before tokens arrive
@@ -267,11 +281,23 @@ def post_query_stream(
                 yield f"event: token\ndata: {json.dumps({'t': token})}\n\n"
         except LLMUnavailableError as exc:
             err = json.dumps({"reason": "llm_unavailable", "message": str(exc)})
+            audit_outcome(
+                answer_kind="stream_failed",
+                model_used=True,
+                flagged=False,
+                error=str(exc),
+            )
             yield f"event: error\ndata: {err}\n\n"
             return
 
         raw = "".join(collected)
         cleaned, flagged = verify_prose(raw, facts, passages)
+        audit_outcome(
+            answer_kind="narrative",
+            model_used=True,
+            flagged=flagged,
+            error=None,
+        )
         done = {"prose": cleaned, "flagged": flagged}
         yield f"event: done\ndata: {json.dumps(done)}\n\n"
 
