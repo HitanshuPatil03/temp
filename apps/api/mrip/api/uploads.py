@@ -86,6 +86,10 @@ class UploadResponse(BaseModel):
     #: What the boundary did to the file, verbatim, so the uploader is told
     #: rather than surprised.
     notes: list[str] = []
+    #: The document this one was recorded as replacing, if the uploader said so,
+    #: and how many of its facts were retired as a result.
+    supersedes: str | None = None
+    facts_superseded: int = 0
 
 
 @router.post(
@@ -98,19 +102,47 @@ async def upload_document(
     store: StoreDep,
     settings: SettingsDep,
     officer: OfficerDep,
+    scope: ScopeDep,
     caller_ip: SourceIpDep,
     file: Annotated[UploadFile, File(description="The source document")],
     publisher_entity_id: Annotated[str | None, Form()] = None,
     fiscal_year: Annotated[str | None, Form()] = None,
     title: Annotated[str | None, Form()] = None,
     sensitivity: Annotated[Sensitivity, Form()] = Sensitivity.INTERNAL,
+    supersedes: Annotated[str | None, Form()] = None,
 ) -> UploadResponse:
     """Accept a source document and start its ingestion.
 
     Requires the **officer** role: uploading is how figures enter the corpus, and
     a viewer is someone who reads it.
+
+    ``supersedes`` is how a *correction* enters the corpus. CIL reissues
+    statements — a provisional monthly figure is replaced by the audited annual
+    one — and without naming the document being replaced the two sit side by
+    side, both active, and the conflict radar flags the organisation's own
+    revision as a disagreement between sources. Naming it retires the old
+    version's facts to ``superseded``: still queryable, so "what did the earlier
+    version say?" is still answerable, but no longer offered as the answer.
     """
     settings.ensure_dirs()
+
+    # Validated before a byte is written. A caller naming a document they cannot
+    # see, or one that does not exist, is told so instead of having the upload
+    # succeed with the supersession silently dropped — which would leave two
+    # active versions of the same figure and no record that anyone intended
+    # otherwise. Checked under the caller's own scope, and 404 rather than 403
+    # for an out-of-scope id, as everywhere else: confirming that a document
+    # exists outside your scope is itself disclosure.
+    if supersedes is not None:
+        replaced = store.get_document(supersedes, scope)
+        if replaced is None:
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    f"No document {supersedes!r} in your scope, so this upload "
+                    "cannot be recorded as replacing it."
+                ),
+            )
     # The staging path is built from the generated id alone, never from
     # file.filename. A filename carrying a NUL byte, a path separator, or more
     # than the filesystem's name limit would otherwise raise ValueError/OSError
@@ -191,6 +223,14 @@ async def upload_document(
         # that makes a broker unnecessary: there is no instant at which a
         # document exists with nothing scheduled to process it.
         store.register_document(document)
+
+        # The supersession commits in the same transaction as the registration
+        # that justifies it. A correction that landed without retiring what it
+        # corrects would leave the old figures active until someone noticed.
+        facts_superseded = 0
+        if supersedes is not None:
+            facts_superseded = store.mark_superseded(supersedes, document.document_id)
+
         enqueue_next_stage(store, document, DocumentState.RECEIVED)
         store.audit.record(
             "document.uploaded",
@@ -206,6 +246,10 @@ async def upload_document(
                 "pages": report.page_count,
                 "stripped": list(report.stripped),
                 "size_bytes": report.size_bytes,
+                # Which document this replaced, and how much it retired. A
+                # revision is the kind of thing someone asks about a year later.
+                "supersedes": supersedes,
+                "facts_superseded": facts_superseded,
             },
             request_id=getattr(request.state, "request_id", None),
             source_ip=caller_ip,
@@ -228,6 +272,8 @@ async def upload_document(
             size_bytes=document.size_bytes,
             created=True,
             notes=report.notes,
+            supersedes=supersedes,
+            facts_superseded=facts_superseded,
         )
 
     except IntakeError as refused:
