@@ -156,21 +156,55 @@ def test_one_fiscal_year_has_exactly_one_label() -> None:
         )
 
 
-def test_a_range_that_is_not_a_fiscal_year_keeps_its_own_label() -> None:
-    """The canonicalisation must not swallow part-year cumulatives.
+def test_a_part_year_is_never_relabelled_as_the_whole_year() -> None:
+    """The boundary the canonicalisation must not cross.
 
-    ``Apr 2024 - Sep 2024`` is the half-year figure every CIL monthly statement
-    carries. It shares a ``fiscal_year`` with the annual total and must stay
-    distinguishable from it — relabelling it ``FY2024-25`` would merge a half-year
-    into the year, which is the overcount this whole area exists to prevent.
+    Every CIL monthly statement carries a year-to-date column beside the month's
+    own figure. Those runs get the canonical name of whatever fiscal period they
+    exactly cover — ``Apr 2024 - Sep 2024`` is ``H1 FY2024-25``, because it is —
+    but a part-year must never take the *year's* label. Doing so would merge a
+    half into the year, overstating production by however much of the year has
+    elapsed, which is the overcount this whole area exists to prevent.
+
+    A run that covers no named period keeps its month-range label, because it has
+    no other honest name: five months is nobody's quarter.
+    """
+    from mrip.normalize.periods import PeriodKind, normalize_period
+
+    half = normalize_period("Apr 2024 - Sep 2024")
+    assert half.label == "H1 FY2024-25"  # it is H1, exactly
+    assert half.fiscal_year == "FY2024-25"
+    assert half.label != "FY2024-25", "a half must not take the year's name"
+    assert half.kind is PeriodKind.FISCAL_HALF
+
+    quarter = normalize_period("Apr 2024 - Jun 2024")
+    assert quarter.label == "Q1 FY2024-25"
+    assert quarter.label != "FY2024-25"
+
+    # Five months. Not a quarter, not a half, not the year — so it keeps the only
+    # name it has, and stays distinguishable from all three.
+    five = normalize_period("Apr 2024 - Aug 2024")
+    assert five.label == "Apr 2024 - Aug 2024"
+    assert five.kind is PeriodKind.MONTH_RANGE
+    assert five.fiscal_year == "FY2024-25"
+
+
+def test_a_canonicalised_range_says_how_it_was_written() -> None:
+    """Relabelling must not lose the fact that the source spelled out months.
+
+    The label is the measurement's identity and has to be canonical, but a
+    reviewer reading the fact back needs to know the document said
+    "APR'24 - SEP'24" rather than "H1". That lives on ``note``, so the identity
+    stays clean without the provenance being thrown away.
     """
     from mrip.normalize.periods import normalize_period
 
-    half = normalize_period("Apr 2024 - Sep 2024")
+    half = normalize_period("APR'24 - SEP'24")
 
-    assert half.label == "Apr 2024 - Sep 2024"
-    assert half.fiscal_year == "FY2024-25"
-    assert half.label != "FY2024-25"
+    assert half.label == "H1 FY2024-25"
+    assert half.raw == "APR'24 - SEP'24"
+    assert half.note is not None
+    assert "run of months" in half.note
 
 
 # ------------------------------------------------------- parse_number
