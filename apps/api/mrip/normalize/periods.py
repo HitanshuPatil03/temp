@@ -249,6 +249,33 @@ def _month_range(text: str, raw: str) -> Period | None:
             raw=raw,
             fiscal_year=fiscal_year_label(fiscal),
         )
+
+    # A range that covers the whole fiscal year *is* that fiscal year, and must
+    # carry its canonical label. "April 2024 to March 2025" and "FY 2024-25" are
+    # the same twelve months, so they are the same measurement — and the system
+    # treats ``period_label`` as a measurement's identity in three places:
+    #
+    #   - the conflict radar groups on it, so two sources disagreeing about that
+    #     year would never be put in the same group and the disagreement would
+    #     stay invisible;
+    #   - ``resolve_figure`` matches on it, so asking for FY2024-25 would return
+    #     one of the two and silently ignore the other;
+    #   - ``entity_metric_series`` groups on ``(entity, fiscal_year, unit)`` and
+    #     sums every full-year fact, so a chart would add both together and report
+    #     double — the same overcount this module's callers work hard to avoid.
+    #
+    # Normalising here rather than patching those three is the point of having a
+    # normalizer: one span, one label, decided once.
+    if (start, end) == _fiscal_span(fiscal, 0, 12):
+        return _fiscal_year_period(
+            fiscal,
+            raw,
+            note=(
+                "written as a month range, recognised as the whole fiscal year: "
+                "the same twelve months as FY itself, so it carries the same label"
+            ),
+        )
+
     return Period(
         kind=PeriodKind.MONTH_RANGE,
         start=start,
