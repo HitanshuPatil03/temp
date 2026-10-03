@@ -11,19 +11,21 @@
  * "what did the FY23 report say before it was revised?" has an answer.
  */
 
-import { FileText, Files, Layers } from "lucide-react";
+import { FileText, Files, Layers, RotateCcw } from "lucide-react";
 import { useState } from "react";
-import useSWR from "swr";
+import useSWR, { useSWRConfig } from "swr";
 
 import { PageHeader } from "@/components/shell/page-header";
 import { Badge, SyntheticBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Field, Select } from "@/components/ui/input";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { EmptyState, ErrorState, Refetching, Skeleton } from "@/components/ui/states";
-import { ApiError, fetcher, keys } from "@/lib/api";
+import { api, ApiError, fetcher, keys } from "@/lib/api";
 import { formatBytes, formatDate, formatNumber, humanize } from "@/lib/format";
-import type { EvidenceSpan, MripDocument } from "@/lib/types";
+import { INGEST_STAGES } from "@/lib/types";
+import type { EvidenceSpan, IngestStage, MripDocument } from "@/lib/types";
 
 import { UploadPanel } from "./upload-panel";
 
@@ -168,9 +170,158 @@ export default function DocumentsPage() {
           </CardBody>
         </Card>
 
-        {selected ? <EvidenceWalker doc={selected} /> : null}
+        {/* Keyed on the document so selecting a different one gets a fresh
+            component rather than inheriting the last one's local state. Without
+            it the page walker stays on page 47 when you move to a two-page
+            letter, and the failure panel keeps the previous document's chosen
+            stage and queued job id. */}
+        {selected ? (
+          <FailurePanel key={`fail-${selected.document_id}`} doc={selected} />
+        ) : null}
+        {selected ? (
+          <EvidenceWalker key={`pages-${selected.document_id}`} doc={selected} />
+        ) : null}
       </main>
     </>
+  );
+}
+
+/**
+ * What to do about a document that did not finish.
+ *
+ * Rendered only for `failed` and `quarantined`, and the two are deliberately not
+ * symmetric:
+ *
+ * **Failed is retryable.** Every stage replaces its own output rather than
+ * appending to it, so re-running one produces the same rows and not a second
+ * copy — which is what makes "try it again" a safe button rather than a
+ * duplication risk. It defaults to the stage that failed, because the common
+ * cause is transient (an OOM on a 400-page scan), but an earlier stage can be
+ * chosen when the cause is not: a misclassified spreadsheet has to go back to
+ * `classify`, not to the extractor that was reading the wrong shape.
+ *
+ * **Quarantined is not.** The lifecycle has no transition out of it, because
+ * whatever made the bytes unsafe — an encrypted PDF, an archive that expands
+ * past its stated size — is still true of those bytes. "Try again" on a
+ * decompression bomb is not a recovery strategy. Offering a button that 409s
+ * would be worse than offering none, so this says what to do instead.
+ *
+ * The reason is rendered as text. It was previously a `title` tooltip, which is
+ * invisible on a touch device, invisible to a screen reader, and the one sentence
+ * the officer's next action depends on.
+ */
+function FailurePanel({ doc }: { doc: MripDocument }) {
+  const { mutate } = useSWRConfig();
+  const [stage, setStage] = useState<IngestStage>(
+    (doc.failed_stage as IngestStage) ?? "classify",
+  );
+  const [pending, setPending] = useState(false);
+  const [queued, setQueued] = useState<{ stage: string; job_id: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  if (doc.state !== "failed" && doc.state !== "quarantined") return null;
+
+  async function retry() {
+    setPending(true);
+    setError(null);
+    setQueued(null);
+    try {
+      const outcome = await api.retryDocument(doc.document_id, stage);
+      setQueued({ stage: outcome.stage, job_id: outcome.job_id });
+      await mutate(keys.documents());
+      await mutate(keys.summary());
+    } catch (caught) {
+      setError(
+        caught instanceof ApiError
+          ? caught.detail
+          : "The API did not respond. Check that the backend is running.",
+      );
+    } finally {
+      setPending(false);
+    }
+  }
+
+  if (doc.state === "quarantined") {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Stopped at the boundary</CardTitle>
+          <CardDescription>
+            {doc.title ?? doc.filename} was refused before ingestion and is not
+            re-processed: whatever made these bytes unsafe is still true of them.
+          </CardDescription>
+        </CardHeader>
+        <CardBody>
+          {doc.failed_reason ? (
+            <p className="text-sm leading-relaxed text-critical">{doc.failed_reason}</p>
+          ) : null}
+          <p className="mt-3 text-xs leading-relaxed text-ink-2">
+            Ask the subsidiary for a copy without the protection or the archive, and
+            upload that as a new document. Nothing is lost by leaving this row here —
+            it is the record that the file arrived and why it was not used.
+          </p>
+        </CardBody>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>
+          Ingestion failed{doc.failed_stage ? ` at ${doc.failed_stage}` : ""}
+        </CardTitle>
+        <CardDescription>
+          {doc.title ?? doc.filename} — the stages before this one finished, so a
+          re-run starts from here rather than from the beginning.
+        </CardDescription>
+      </CardHeader>
+      <CardBody className="space-y-4">
+        {doc.failed_reason ? (
+          <p className="rounded-md border border-critical/30 bg-critical/5 px-3 py-2.5 font-mono text-xs leading-relaxed whitespace-pre-wrap text-critical">
+            {doc.failed_reason}
+          </p>
+        ) : null}
+
+        <div className="flex flex-wrap items-end gap-3">
+          <Field
+            label="Re-run from"
+            hint="Earlier stages re-do work that already succeeded"
+          >
+            <Select
+              value={stage}
+              onChange={(event) => setStage(event.target.value as IngestStage)}
+            >
+              {INGEST_STAGES.map((item) => (
+                <option key={item} value={item}>
+                  {humanize(item)}
+                  {item === doc.failed_stage ? " — where it failed" : ""}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Button variant="primary" pending={pending} onClick={retry}>
+            <RotateCcw className="size-3.5" aria-hidden />
+            Re-run
+          </Button>
+        </div>
+
+        {error ? (
+          <p role="alert" className="text-xs leading-relaxed text-critical">
+            {error}
+          </p>
+        ) : null}
+
+        {queued ? (
+          <p className="text-xs leading-relaxed text-ink-2">
+            Queued from <span className="font-medium text-ink">{queued.stage}</span> as{" "}
+            <span className="font-mono">{queued.job_id}</span>. A worker picks it up
+            within a second or two; the state in the table above changes as it
+            progresses.
+          </p>
+        ) : null}
+      </CardBody>
+    </Card>
   );
 }
 

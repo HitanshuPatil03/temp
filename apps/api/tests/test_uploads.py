@@ -1,14 +1,20 @@
-"""Tests for the upload route's revision handling.
+"""Tests for the upload route's revision handling and retry.
 
 The boundary itself — magic numbers, size caps, zip bombs, encrypted PDFs — is
 covered in ``test_intake.py``. What is under test here is the half only the route
-can get wrong: what happens when an officer uploads a **correction**.
+can get wrong.
 
-CIL reissues statements. A provisional monthly figure is replaced by the audited
-annual one, and the second document is not a disagreement between two sources —
-it is the organisation revising itself. Without naming what it replaces, both
-versions sit active and the conflict radar flags the revision as a conflict, which
-is precisely the false positive that would teach a reviewer to ignore the radar.
+**Corrections.** CIL reissues statements. A provisional monthly figure is replaced
+by the audited annual one, and the second document is not a disagreement between
+two sources — it is the organisation revising itself. Without naming what it
+replaces, both versions sit active and the conflict radar flags the revision as a
+conflict, which is precisely the false positive that would teach a reviewer to
+ignore the radar.
+
+**Retry.** A failed document has to be recoverable from any stage, because the
+cause decides where to restart: a transient OOM means re-run the stage that died,
+a misclassified spreadsheet means go back to ``classify`` and do it all again.
+The web UI offers all six, so all six have to work.
 """
 
 from __future__ import annotations
@@ -20,8 +26,9 @@ from fastapi.testclient import TestClient
 from mrip.api.deps import provide_read_only_store, provide_store
 from mrip.auth.scope import SCOPE_ALL, Scope
 from mrip.db import Store
+from mrip.ingest.lifecycle import STAGES
 from mrip.main import create_app
-from mrip.schemas import FactStatus, Role
+from mrip.schemas import DocumentState, FactStatus, Role
 
 SCOPE = Scope.unrestricted("test suite")
 
@@ -138,3 +145,110 @@ def test_an_ordinary_upload_supersedes_nothing(client, tmp_path) -> None:
     body = response.json()
     assert body["supersedes"] is None
     assert body["facts_superseded"] == 0
+
+
+# ------------------------------------------------------------------- retry
+
+
+def _failed_document(store: Store, make_document, *, at: str = "digitize"):
+    """A document that failed at a named stage, as a dead job would leave it."""
+    document = make_document(f"failed-at-{at}.pdf")
+    store.register_document(document)
+    store.documents.set_state(
+        document.document_id,
+        DocumentState.FAILED,
+        failed_stage=at,
+        failed_reason="Worker ran out of memory on page 312.",
+    )
+    return document
+
+
+@pytest.mark.parametrize("stage", [item.name for item in STAGES])
+def test_a_failed_document_can_be_re_run_from_any_stage(
+    client, store: Store, make_document, stage: str
+) -> None:
+    """Every one of the six stages has to be a legal restart point.
+
+    The cause of the failure decides where to resume: a transient OOM means
+    re-run the stage that died, but a spreadsheet the classifier read as a PDF
+    has to go back to ``classify`` — restarting at the extractor would just read
+    the wrong shape again. The web UI offers all six, so all six must work;
+    parametrised rather than written once because a lifecycle table that forbids
+    one of them should fail here and not in front of an officer.
+    """
+    document = _failed_document(store, make_document)
+
+    response = client.post(
+        f"/api/documents/{document.document_id}/retry", json={"stage": stage}
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["stage"] == stage
+    assert body["job_id"]
+    # The document is moved to the state *before* the named stage, so the normal
+    # chain carries it forward from there.
+    assert body["state"] != DocumentState.FAILED.value
+
+    reloaded = store.get_document(document.document_id, SCOPE)
+    assert reloaded is not None
+    assert reloaded.state.value == body["state"]
+    # Advancing past a failure clears it: a retried document must not keep
+    # showing the error that is no longer true of it.
+    assert reloaded.failed_stage is None
+    assert reloaded.failed_reason is None
+
+
+def test_a_retry_names_the_stages_when_the_one_asked_for_is_unknown(
+    client, store: Store, make_document
+) -> None:
+    """A typo is answered with the list, not with 'invalid stage'."""
+    document = _failed_document(store, make_document)
+
+    response = client.post(
+        f"/api/documents/{document.document_id}/retry", json={"stage": "digitise"}
+    )
+
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert detail["error"] == "unknown_stage"
+    assert "digitize" in detail["stages"]
+
+
+def test_a_quarantined_document_cannot_be_re_run(
+    client, store: Store, make_document
+) -> None:
+    """Whatever made the bytes unsafe is still true of them.
+
+    The UI does not offer the button for a quarantined document; this is the
+    backstop that makes that a guarantee rather than a UI convention.
+    """
+    document = make_document("bomb.zip")
+    store.register_document(document)
+    store.documents.set_state(document.document_id, DocumentState.QUARANTINED)
+
+    response = client.post(
+        f"/api/documents/{document.document_id}/retry", json={"stage": "classify"}
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["error"] == "illegal_transition"
+
+
+def test_retrying_a_document_outside_your_scope_is_a_404(
+    store: Store, make_user, bearer, make_document
+) -> None:
+    """Same rule as everywhere else: a 403 would confirm it exists."""
+    hidden = _failed_document(store, make_document)
+    store.documents.set_publisher(hidden.document_id, "mcl")
+
+    app = create_app()
+    app.dependency_overrides[provide_store] = lambda: store
+    app.dependency_overrides[provide_read_only_store] = lambda: store
+    secl_only = make_user("secl.only", role=Role.OFFICER, entities=("secl",))
+    with TestClient(app, headers=bearer(secl_only)) as scoped:
+        response = scoped.post(
+            f"/api/documents/{hidden.document_id}/retry", json={"stage": "classify"}
+        )
+
+    assert response.status_code == 404
