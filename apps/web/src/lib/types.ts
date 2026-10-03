@@ -126,10 +126,55 @@ export interface MripDocument {
    *  work item, not a log line. */
   failed_stage: string | null;
   failed_reason: string | null;
-  /** Per-stage counters, e.g. `{ digitize: { done: 142, total: 400 } }`. */
+  /**
+   * Per-stage counters, e.g. `{ digitize: { done: 142, total: 400, at: "…" } }`.
+   *
+   * Loosely typed on purpose: `extract` writes extra keys of its own (`tables`,
+   * `skipped`, `examples`) and a future stage may write more. Read it through
+   * {@link latestStageProgress}, which validates the two fields every stage is
+   * guaranteed to write rather than trusting the shape.
+   */
   stage_progress: Record<string, unknown>;
   blob_key: string | null;
   uploaded_by: string | null;
+}
+
+/** One stage's counter, after validation. */
+export interface StageProgress {
+  stage: string;
+  done: number;
+  total: number;
+}
+
+/**
+ * The most recently reported stage counter, or null if none is readable.
+ *
+ * Picks by the `at` timestamp each stage writes rather than by deriving which
+ * stage *should* be running from the document's state. Deriving it would mean
+ * keeping a copy of the pipeline's state→stage table here, and a second copy of
+ * a mapping is a copy that drifts. The latest report is also the more honest
+ * answer: it is what the worker actually said.
+ */
+export function latestStageProgress(
+  progress: Record<string, unknown>,
+): StageProgress | null {
+  let best: StageProgress | null = null;
+  let bestAt = "";
+
+  for (const [stage, value] of Object.entries(progress ?? {})) {
+    if (typeof value !== "object" || value === null) continue;
+    const entry = value as Record<string, unknown>;
+    const { done, total, at } = entry;
+    // A total of 0 is not progress, it is a division by zero waiting to happen.
+    if (typeof done !== "number" || typeof total !== "number" || total <= 0) continue;
+
+    const stamp = typeof at === "string" ? at : "";
+    if (best === null || stamp > bestAt) {
+      best = { stage, done, total };
+      bestAt = stamp;
+    }
+  }
+  return best;
 }
 
 export interface Fact {

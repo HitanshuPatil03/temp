@@ -73,6 +73,109 @@ def test_superseding_retires_old_facts_without_deleting_them(
     assert store.get_document(new.document_id, SCOPE).supersedes == old.document_id
 
 
+def test_one_stage_report_does_not_erase_another(store, make_document):
+    """``stage_progress`` accumulates; it is not the last stage's scratch space.
+
+    The extraction stage records what it refused — "37 cells had no unit, here are
+    three of them" — and that is the work item for whoever owns the filing. Before
+    this, the next stage's own count replaced the whole object seconds later and
+    the report was destroyed before anyone could read it.
+    """
+    from mrip.schemas import DocumentState
+
+    document = store.register_document(make_document())
+    store.documents.set_state(
+        document.document_id,
+        DocumentState.CLASSIFIED,
+        progress={"classify": {"done": 1, "total": 1}},
+    )
+    store.documents.set_state(
+        document.document_id,
+        DocumentState.DIGITIZED,
+        progress={"digitize": {"done": 400, "total": 400}},
+    )
+    store.documents.set_state(
+        document.document_id,
+        DocumentState.EXTRACTED,
+        progress={"extract": {"done": 112, "total": 149, "skipped": {"no_unit": 37}}},
+    )
+    # Two more stages run after extraction. Neither may take its report with them.
+    store.documents.set_state(
+        document.document_id,
+        DocumentState.NORMALIZED,
+        progress={"normalize": {"done": 4, "total": 4}},
+    )
+    store.documents.set_state(
+        document.document_id,
+        DocumentState.VALIDATED,
+        progress={"validate": {"done": 149, "total": 149}},
+    )
+
+    progress = store.get_document(document.document_id, SCOPE).stage_progress
+
+    assert set(progress) == {
+        "classify",
+        "digitize",
+        "extract",
+        "normalize",
+        "validate",
+    }
+    assert progress["extract"]["skipped"] == {"no_unit": 37}
+    assert progress["digitize"]["total"] == 400
+
+
+def test_a_stage_rerun_replaces_its_own_count_and_only_its_own(store, make_document):
+    """Merging must not mean a stale count sticks around.
+
+    A re-run of digitize after a fixed OCR path has to overwrite its own earlier
+    figure — otherwise the officer reads a number from the run that failed — while
+    still leaving every other stage's alone.
+    """
+    from mrip.schemas import DocumentState
+
+    document = store.register_document(make_document())
+    store.documents.set_state(
+        document.document_id,
+        DocumentState.DIGITIZED,
+        progress={
+            "digitize": {"done": 142, "total": 400},
+            "classify": {"done": 1, "total": 1},
+        },
+    )
+    store.documents.set_state(
+        document.document_id,
+        DocumentState.DIGITIZED,
+        progress={"digitize": {"done": 400, "total": 400}},
+    )
+
+    progress = store.get_document(document.document_id, SCOPE).stage_progress
+
+    assert progress["digitize"] == {"done": 400, "total": 400}
+    assert progress["classify"] == {"done": 1, "total": 1}
+
+
+def test_live_progress_and_stage_completion_share_one_record(store, make_document):
+    """``set_progress`` (outside the transaction) and ``set_state`` (inside it)
+    write to the same object, so the live OCR counter and the stage's final count
+    cannot end up in two places that disagree."""
+    from mrip.schemas import DocumentState
+
+    document = store.register_document(make_document())
+    store.documents.set_state(
+        document.document_id,
+        DocumentState.CLASSIFIED,
+        progress={"classify": {"done": 1, "total": 1}},
+    )
+    # What the worker publishes mid-OCR, so a reviewer sees 142/400 while it runs.
+    store.documents.set_progress(document.document_id, "digitize", 142, 400)
+
+    progress = store.get_document(document.document_id, SCOPE).stage_progress
+    assert progress["digitize"]["done"] == 142
+    assert progress["digitize"]["total"] == 400
+    assert "at" in progress["digitize"], "the live counter stamps when it reported"
+    assert progress["classify"] == {"done": 1, "total": 1}
+
+
 # --------------------------------------------------------------------------- facts
 
 
