@@ -11,7 +11,14 @@
  * "what did the FY23 report say before it was revised?" has an answer.
  */
 
-import { FileText, Files, Layers, RotateCcw } from "lucide-react";
+import {
+  CheckCircle2,
+  Circle,
+  FileText,
+  Files,
+  Layers,
+  RotateCcw,
+} from "lucide-react";
 import { useState } from "react";
 import useSWR, { useSWRConfig } from "swr";
 
@@ -25,7 +32,12 @@ import { EmptyState, ErrorState, Refetching, Skeleton } from "@/components/ui/st
 import { api, ApiError, fetcher, keys } from "@/lib/api";
 import { formatBytes, formatDate, formatNumber, humanize } from "@/lib/format";
 import { INGEST_STAGES, latestStageProgress } from "@/lib/types";
-import type { EvidenceSpan, IngestStage, MripDocument } from "@/lib/types";
+import type {
+  DocumentProgress,
+  EvidenceSpan,
+  IngestStage,
+  MripDocument,
+} from "@/lib/types";
 
 import { UploadPanel } from "./upload-panel";
 
@@ -199,6 +211,9 @@ export default function DocumentsPage() {
           <FailurePanel key={`fail-${selected.document_id}`} doc={selected} />
         ) : null}
         {selected ? (
+          <IngestionPanel key={`ingest-${selected.document_id}`} doc={selected} />
+        ) : null}
+        {selected ? (
           <EvidenceWalker key={`pages-${selected.document_id}`} doc={selected} />
         ) : null}
       </main>
@@ -361,6 +376,152 @@ function FailurePanel({ doc }: { doc: MripDocument }) {
  * Hidden once the document is terminal: a finished document's last counter is
  * history, and `142 / 400` beside a green "ready" badge reads like a failure.
  */
+/**
+ * What the pipeline did to this document, and what it declined to.
+ *
+ * Answers the question an officer actually brings to this screen: *this is a
+ * 180-page annual report — why did it produce four figures?* The extractor has
+ * always recorded that answer, down to which cells it refused and why, and
+ * nothing read it: `/documents/{id}/progress` had no caller, and the "a reviewer
+ * can act on this one" distinction was computed and discarded.
+ *
+ * Refusals are split rather than listed. A refused total row is the extractor
+ * working correctly — the figure is read from the row's parts instead — and
+ * showing it beside "37 cells gave no unit" would teach the reader that neither
+ * matters. Only the actionable ones carry examples.
+ */
+function IngestionPanel({ doc }: { doc: MripDocument }) {
+  const detail = useSWR<DocumentProgress>(
+    keys.documentProgress(doc.document_id),
+    fetcher,
+    { refreshInterval: IN_FLIGHT.has(doc.state) ? 3000 : 0 },
+  );
+
+  const extraction = detail.data?.extraction ?? null;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Ingestion</CardTitle>
+        <CardDescription>
+          Each stage, and what the extractor made of this document&apos;s tables.
+        </CardDescription>
+      </CardHeader>
+      <CardBody className="space-y-5">
+        {detail.error ? (
+          <ErrorState
+            title="Cannot read this document's progress"
+            detail={
+              detail.error instanceof ApiError
+                ? detail.error.detail
+                : "The API is not reachable."
+            }
+          />
+        ) : detail.isLoading || !detail.data ? (
+          <Skeleton className="h-24" />
+        ) : (
+          <>
+            <ol className="flex flex-wrap gap-x-5 gap-y-2">
+              {detail.data.stages.map((stage) => (
+                <li key={stage.name} className="flex items-center gap-1.5">
+                  {stage.completed ? (
+                    <CheckCircle2 className="size-3.5 shrink-0 text-good" aria-hidden />
+                  ) : (
+                    <Circle className="size-3.5 shrink-0 text-ink-3" aria-hidden />
+                  )}
+                  <span
+                    className={
+                      stage.completed ? "text-xs text-ink" : "text-xs text-ink-3"
+                    }
+                    title={stage.description}
+                  >
+                    {humanize(stage.name)}
+                  </span>
+                </li>
+              ))}
+            </ol>
+
+            {extraction === null ? (
+              <p className="text-xs leading-relaxed text-ink-3">
+                Extraction has not run yet, so there is nothing to report about this
+                document&apos;s tables.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                <p className="text-xs leading-relaxed text-ink-2">
+                  {extraction.facts !== null && extraction.candidates !== null ? (
+                    <>
+                      <span className="tnum font-medium text-ink">
+                        {formatNumber(extraction.facts, 0)}
+                      </span>{" "}
+                      of{" "}
+                      <span className="tnum">
+                        {formatNumber(extraction.candidates, 0)}
+                      </span>{" "}
+                      candidate cells became figures
+                      {extraction.tables !== null
+                        ? `, across ${formatNumber(extraction.tables, 0)} tables`
+                        : ""}
+                      .
+                    </>
+                  ) : (
+                    "Extraction ran."
+                  )}
+                </p>
+
+                {extraction.needs_attention.length > 0 ? (
+                  <div>
+                    <p className="text-xs font-medium text-warning">
+                      Worth a look — a person can resolve these
+                    </p>
+                    <ul className="mt-1.5 space-y-1.5">
+                      {extraction.needs_attention.map((group) => (
+                        <li key={group.reason} className="text-xs leading-relaxed">
+                          <span className="tnum font-medium text-ink">
+                            {formatNumber(group.count, 0)}
+                          </span>{" "}
+                          <span className="text-ink-2">
+                            {group.label.toLowerCase()}
+                          </span>
+                          {group.examples.length > 0 ? (
+                            <span className="mt-0.5 block font-mono text-ink-3">
+                              {group.examples.slice(0, 3).join(" · ")}
+                            </span>
+                          ) : null}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : (
+                  <p className="text-xs leading-relaxed text-good">
+                    Nothing was refused for a reason anyone can act on.
+                  </p>
+                )}
+
+                {extraction.ignored.length > 0 ? (
+                  <div>
+                    <p className="text-xs text-ink-3">
+                      Skipped as table furniture — correct behaviour, listed so the
+                      arithmetic adds up
+                    </p>
+                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+                      {extraction.ignored.map((group) => (
+                        <Badge key={group.reason} tone="neutral">
+                          {group.label} {formatNumber(group.count, 0)}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            )}
+          </>
+        )}
+      </CardBody>
+    </Card>
+  );
+}
+
 function StageProgressBar({ doc }: { doc: MripDocument }) {
   if (!IN_FLIGHT.has(doc.state)) return null;
 

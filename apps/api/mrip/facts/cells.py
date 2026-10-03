@@ -43,12 +43,14 @@ __all__ = [
     "ACTIONABLE_SKIPS",
     "NULL_TOKENS",
     "PARSE_CONFIDENCE",
+    "SKIP_LABELS",
     "TOTAL_LABELS",
     "Cell",
     "ExtractionReport",
     "SkipReason",
     "build_fact",
     "parse_number",
+    "skip_label",
     "to_cells",
     "try_period",
     "unit_from_text",
@@ -136,6 +138,42 @@ ACTIONABLE_SKIPS = frozenset(
         SkipReason.UNVERIFIABLE_OCR_LAYER,
     }
 )
+
+#: What each reason means to the person reading it, and — for the actionable ones
+#: — what they can do about it.
+#:
+#: Written here rather than in the web client for the same reason
+#: :data:`ACTIONABLE_SKIPS` is: which refusals a reviewer can act on, and how to
+#: describe one, is domain knowledge. A copy in TypeScript would be a second
+#: source of truth, and the copy that drifts is always the one further from the
+#: code that raises the reason.
+SKIP_LABELS: dict[str, str] = {
+    SkipReason.NOT_A_NUMBER: "Not a number",
+    SkipReason.NULL_CELL: "Empty cell",
+    SkipReason.TOTAL_ROW: "Total row — read from its parts instead",
+    SkipReason.NO_METRIC: "Row label matched no known metric",
+    SkipReason.NO_PERIOD: "Column header named no period",
+    SkipReason.NO_ENTITY: "Row named no subsidiary or mine",
+    SkipReason.NO_UNIT: "No unit stated anywhere on the table",
+    SkipReason.AMBIGUOUS_UNIT: "Unit could mean more than one thing",
+    SkipReason.WRONG_DIMENSION: "Unit measures the wrong quantity for this metric",
+    SkipReason.HEADER_CELL: "Header cell",
+    SkipReason.FAILS_SELF_CHECK: "Disagrees with the row's own printed growth figure",
+    SkipReason.LAYOUT_UNVERIFIED: "Layout recognised but its cross-checks did not hold",
+    SkipReason.UNVERIFIABLE_OCR_LAYER: (
+        "Read off an OCR layer with nothing to check it against"
+    ),
+}
+
+
+def skip_label(reason: str) -> str:
+    """A human sentence for a skip reason, or the raw reason if it is unknown.
+
+    Falling back to the raw string rather than raising: a reason added to
+    :class:`SkipReason` without a label here should show up in the UI looking
+    unpolished, not take the page down.
+    """
+    return SKIP_LABELS.get(reason, reason.replace("_", " "))
 
 
 @dataclass

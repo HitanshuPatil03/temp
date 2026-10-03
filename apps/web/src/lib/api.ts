@@ -158,6 +158,7 @@ export const keys = {
   users: () => "/auth/users",
   audit: (query?: Query) => withQuery("/auth/audit", query).replace(/^\/api/, ""),
   pipelineHealth: () => "/health/pipeline",
+  documentProgress: (id: string) => `/documents/${id}/progress`,
 };
 
 export const api = {
