@@ -24,7 +24,7 @@ import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { EmptyState, ErrorState, Refetching, Skeleton } from "@/components/ui/states";
 import { api, ApiError, fetcher, keys } from "@/lib/api";
 import { formatBytes, formatDate, formatNumber, humanize } from "@/lib/format";
-import { INGEST_STAGES } from "@/lib/types";
+import { INGEST_STAGES, latestStageProgress } from "@/lib/types";
 import type { EvidenceSpan, IngestStage, MripDocument } from "@/lib/types";
 
 import { UploadPanel } from "./upload-panel";
@@ -43,8 +43,27 @@ const STATE_TONE: Record<string, "neutral" | "good" | "warning" | "critical"> = 
   quarantined: "critical",
 };
 
+/** States a document can still move out of on its own. */
+const IN_FLIGHT = new Set<string>([
+  "received",
+  "classified",
+  "digitized",
+  "extracted",
+  "normalized",
+  "validated",
+  "indexed",
+]);
+
 export default function DocumentsPage() {
-  const documents = useSWR<MripDocument[]>(keys.documents(), fetcher);
+  const documents = useSWR<MripDocument[]>(keys.documents(), fetcher, {
+    // Poll only while something is actually moving. A 400-page scan takes
+    // minutes, and an officer watching a static "digitized" badge cannot tell
+    // working from stuck — which is when they re-upload. Once every document is
+    // terminal there is nothing to see, so the polling stops rather than asking
+    // a question whose answer cannot change.
+    refreshInterval: (latest) =>
+      latest?.some((doc) => IN_FLIGHT.has(doc.state)) ? 3000 : 0,
+  });
   const [selected, setSelected] = useState<MripDocument | null>(null);
 
   return (
@@ -136,6 +155,7 @@ export default function DocumentsPage() {
                               at {doc.failed_stage}
                             </span>
                           ) : null}
+                          <StageProgressBar doc={doc} />
                         </TD>
                         <TD>
                           <Badge tone="neutral">{humanize(doc.doc_class)}</Badge>
@@ -322,6 +342,53 @@ function FailurePanel({ doc }: { doc: MripDocument }) {
         ) : null}
       </CardBody>
     </Card>
+  );
+}
+
+/**
+ * "OCR 142 / 400", while it is happening.
+ *
+ * The counters have always been written — each stage publishes them in its own
+ * transaction precisely so they are visible before the stage commits — but
+ * nothing read them, so a 400-page scan showed a static badge for several
+ * minutes with no way to tell working from stuck. That is the state in which an
+ * officer re-uploads the same file.
+ *
+ * Read from the row the table already has rather than from
+ * `/documents/{id}/progress`, which would be one request per visible row to
+ * learn something the list response already carries.
+ *
+ * Hidden once the document is terminal: a finished document's last counter is
+ * history, and `142 / 400` beside a green "ready" badge reads like a failure.
+ */
+function StageProgressBar({ doc }: { doc: MripDocument }) {
+  if (!IN_FLIGHT.has(doc.state)) return null;
+
+  const progress = latestStageProgress(doc.stage_progress);
+  if (progress === null) return null;
+
+  const percent = Math.min(100, Math.round((progress.done / progress.total) * 100));
+
+  return (
+    <span className="mt-1 flex items-center gap-1.5">
+      <span
+        className="h-1 w-10 shrink-0 overflow-hidden rounded-full bg-plane"
+        role="progressbar"
+        aria-valuenow={progress.done}
+        aria-valuemin={0}
+        aria-valuemax={progress.total}
+        aria-label={`${progress.stage}: ${progress.done} of ${progress.total}`}
+      >
+        <span
+          className="block h-full rounded-full bg-series-1 transition-[width] duration-500"
+          style={{ width: `${percent}%` }}
+        />
+      </span>
+      <span className="tnum text-xs text-ink-3">
+        {humanize(progress.stage)} {formatNumber(progress.done)} /{" "}
+        {formatNumber(progress.total)}
+      </span>
+    </span>
   );
 }
 

@@ -13,6 +13,7 @@ from typing import Any
 
 import sqlalchemy as sa
 from sqlalchemy import Connection
+from sqlalchemy.dialects.postgresql import JSONB
 
 from mrip.auth.scope import Scope
 from mrip.db.mappers import document_to_row, row_to_document
@@ -147,6 +148,14 @@ class DocumentRepository:
 
         The caller is expected to be inside the same transaction as the stage's
         output, so a document is never marked ``digitized`` without its spans.
+
+        ``progress`` is **merged** into whatever the document already carries, for
+        the same reason :meth:`set_progress` merges: each stage reports its own
+        key, and no stage's report is another's to discard. Replacing used to lose
+        the extraction skip report — "37 cells had no unit, here are three of
+        them" — the moment the normalize stage reported its own count, seconds
+        later. That report is the work item for whoever owns the filing, and it
+        was being destroyed before anyone could read it.
         """
         values: dict[str, Any] = {"state": state.value, "updated_at": sa.func.now()}
         if state is DocumentState.FAILED:
@@ -160,7 +169,13 @@ class DocumentRepository:
             values["failed_stage"] = None
             values["failed_reason"] = None
         if progress is not None:
-            values["stage_progress"] = progress
+            # `||` on jsonb is a shallow merge: this stage's key replaces its own
+            # earlier value (a re-run should overwrite its own stale count) and
+            # leaves every other stage's alone. One statement, so two stages
+            # reporting concurrently cannot read-modify-write over each other.
+            values["stage_progress"] = documents.c.stage_progress.concat(
+                sa.cast(progress, JSONB)
+            )
         self._conn.execute(
             sa.update(documents)
             .where(documents.c.document_id == document_id)
