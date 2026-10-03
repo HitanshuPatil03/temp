@@ -119,6 +119,60 @@ def test_series_omits_a_subsidiary_with_only_monthly_facts(
     assert store.entity_metric_series("coal_production", SCOPE, unit="t") == []
 
 
+def test_one_fiscal_year_has_exactly_one_label() -> None:
+    """A span and its label must be one-to-one, because the system treats the
+    label as the measurement's identity in three places.
+
+    ``Apr 2024 - Mar 2025`` and ``FY2024-25`` are the same twelve months. A
+    document writing "April 2024 to March 2025" and one writing "FY 2024-25"
+    therefore describe the *same measurement*, and if the normalizer gives them
+    different labels:
+
+    - the conflict radar groups on ``period_label``, so two sources disagreeing
+      about that year are never put in the same group and the disagreement stays
+      invisible;
+    - ``resolve_figure`` matches on ``period_label``, so asking for FY2024-25
+      returns one of them and silently ignores the other;
+    - ``entity_metric_series`` groups on ``(entity, fiscal_year, unit)`` and sums
+      every full-year fact, so a chart adds the two together and reports double.
+
+    The last one is the same overcount class as the test at the top of this file,
+    reached through a different door.
+    """
+    from mrip.normalize.periods import normalize_period
+
+    canonical = normalize_period("FY2024-25")
+    spelled_out = normalize_period("April 2024 to March 2025")
+    abbreviated = normalize_period("Apr 2024 - Mar 2025")
+
+    # Same twelve months, by construction.
+    for other in (spelled_out, abbreviated):
+        assert (other.start, other.end) == (canonical.start, canonical.end)
+        assert other.fiscal_year == canonical.fiscal_year
+        # ...so the same label, or the three bullets above all come true.
+        assert other.label == canonical.label, (
+            f"{other.label!r} and {canonical.label!r} are the same span but would "
+            "be treated as two different measurements"
+        )
+
+
+def test_a_range_that_is_not_a_fiscal_year_keeps_its_own_label() -> None:
+    """The canonicalisation must not swallow part-year cumulatives.
+
+    ``Apr 2024 - Sep 2024`` is the half-year figure every CIL monthly statement
+    carries. It shares a ``fiscal_year`` with the annual total and must stay
+    distinguishable from it — relabelling it ``FY2024-25`` would merge a half-year
+    into the year, which is the overcount this whole area exists to prevent.
+    """
+    from mrip.normalize.periods import normalize_period
+
+    half = normalize_period("Apr 2024 - Sep 2024")
+
+    assert half.label == "Apr 2024 - Sep 2024"
+    assert half.fiscal_year == "FY2024-25"
+    assert half.label != "FY2024-25"
+
+
 # ------------------------------------------------------- parse_number
 
 
