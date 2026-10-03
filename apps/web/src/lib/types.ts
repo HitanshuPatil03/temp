@@ -572,3 +572,42 @@ export interface TermPrevalence {
   fiscal_year: string;
   document_count: number;
 }
+
+// --------------------------------------------------- document progress
+
+/** One refusal reason, counted and explained. */
+export interface SkipGroup {
+  reason: string;
+  /** A human sentence. Written on the backend, next to the code that raises the
+   *  reason, so there is one source of truth for what a refusal means. */
+  label: string;
+  count: number;
+  /** A few verbatim cells, for the actionable reasons only — five examples of an
+   *  empty cell is noise. */
+  examples: string[];
+}
+
+/** What the extract stage produced, and what it declined to. */
+export interface ExtractionSummary {
+  facts: number | null;
+  candidates: number | null;
+  tables: number | null;
+  /** Refusals a reviewer can do something about. */
+  needs_attention: SkipGroup[];
+  /** Total rows, headers, blanks. Counted so the arithmetic adds up; separated so
+   *  they do not read as problems. */
+  ignored: SkipGroup[];
+}
+
+export interface DocumentProgress {
+  document_id: string;
+  state: DocumentState;
+  doc_class: DocumentClass;
+  failed_stage: string | null;
+  failed_reason: string | null;
+  progress: Record<string, unknown>;
+  /** Null until extraction has run — which is a different answer from "ran and
+   *  refused nothing". */
+  extraction: ExtractionSummary | null;
+  stages: { name: string; description: string; completed: boolean }[];
+}

@@ -50,6 +50,7 @@ from mrip.api.deps import (
 from mrip.auth.principal import Principal
 from mrip.blobs import CHUNK_BYTES, get_blob_store
 from mrip.db.repositories.documents import new_id
+from mrip.facts.cells import ACTIONABLE_SKIPS, skip_label
 from mrip.ingest.intake import IntakeError, inspect_upload
 from mrip.ingest.lifecycle import (
     PIPELINE,
@@ -388,6 +389,13 @@ def document_progress(
     The counters come from ``stage_progress``, which is written **outside** the
     stage's transaction precisely so this endpoint can answer while the stage is
     still running.
+
+    ``extraction`` is the part an officer actually asks about: "this is a
+    180-page report, why did it yield four figures?" The extractor already
+    records what it refused and why, a few verbatim examples of each, and which
+    of those reasons a person can do something about. That is returned split and
+    labelled rather than as a raw tally, because `{"no_unit": 37}` is a
+    diagnostic and "37 cells gave no unit anywhere on the table" is an answer.
     """
     document = store.get_document(document_id, scope)
     if document is None:
@@ -400,6 +408,7 @@ def document_progress(
         "failed_stage": document.failed_stage,
         "failed_reason": document.failed_reason,
         "progress": document.stage_progress,
+        "extraction": _extraction_summary(document.stage_progress),
         "stages": [
             {
                 "name": stage.name,
@@ -408,6 +417,67 @@ def document_progress(
             }
             for stage in STAGES
         ],
+    }
+
+
+def _extraction_summary(progress: dict[str, Any]) -> dict[str, Any] | None:
+    """The extract stage's outcome, split into what needs a person and what does not.
+
+    Returns ``None`` before extraction has run, so a caller can tell "nothing to
+    report yet" from "ran and refused nothing" — the second is a real and useful
+    answer about a clean document, and collapsing the two into an empty list
+    would hide it.
+    """
+    extract = progress.get("extract")
+    if not isinstance(extract, dict):
+        return None
+
+    skipped = extract.get("skipped")
+    examples = extract.get("examples")
+    counts: dict[str, int] = skipped if isinstance(skipped, dict) else {}
+    samples: dict[str, Any] = examples if isinstance(examples, dict) else {}
+
+    def entries(reasons: list[str]) -> list[dict[str, Any]]:
+        return [
+            {
+                "reason": reason,
+                "label": skip_label(reason),
+                "count": int(counts[reason]),
+                # A handful of verbatim cells, so "37 had no unit" can be
+                # followed by *which* ones. Only for the actionable reasons:
+                # five examples of an empty cell is noise.
+                "examples": (
+                    list(samples.get(reason, []))[:5]
+                    if reason in ACTIONABLE_SKIPS
+                    else []
+                ),
+            }
+            # Sorted by count: the biggest refusal is the one worth reading first.
+            for reason in sorted(reasons, key=lambda item: -int(counts[item]))
+        ]
+
+    actionable = [
+        reason
+        for reason, count in counts.items()
+        if reason in ACTIONABLE_SKIPS and int(count) > 0
+    ]
+    furniture = [
+        reason
+        for reason, count in counts.items()
+        if reason not in ACTIONABLE_SKIPS and int(count) > 0
+    ]
+
+    return {
+        "facts": extract.get("done"),
+        "candidates": extract.get("total"),
+        "tables": extract.get("tables"),
+        # Refusals a reviewer can do something about: find the unit, resolve the
+        # ambiguity, re-run against a better layout reader.
+        "needs_attention": entries(actionable),
+        # Total rows, headers, blanks. Counted so the arithmetic adds up, and
+        # separated so they do not read as problems — refusing a total row is the
+        # extractor working correctly, not failing.
+        "ignored": entries(furniture),
     }
 
 

@@ -252,3 +252,106 @@ def test_retrying_a_document_outside_your_scope_is_a_404(
         )
 
     assert response.status_code == 404
+
+
+# ------------------------------------------------- the extraction summary
+
+
+def test_the_progress_endpoint_explains_a_thin_extraction(
+    client, store: Store, make_document
+) -> None:
+    """ "180 pages, four figures — why?" is the question this answers.
+
+    The extractor already records what it refused, a few verbatim examples, and
+    which reasons a person can act on. Before this the endpoint returned the raw
+    tally and nothing read it, so the distinction between a refusal a reviewer can
+    fix and ordinary table furniture was computed and discarded.
+    """
+    document = make_document("thin-report.pdf")
+    store.register_document(document)
+    store.documents.set_state(
+        document.document_id,
+        DocumentState.EXTRACTED,
+        progress={
+            "extract": {
+                "done": 4,
+                "total": 56,
+                "tables": 7,
+                "skipped": {
+                    "no_unit": 37,
+                    "ambiguous_unit": 3,
+                    "total_row": 12,
+                },
+                "examples": {
+                    "no_unit": ["Coal production | 193.00", "Offtake | 188.40"],
+                    "total_row": ["Total"],
+                },
+            }
+        },
+    )
+
+    body = client.get(f"/api/documents/{document.document_id}/progress").json()
+    extraction = body["extraction"]
+
+    assert extraction["facts"] == 4
+    assert extraction["candidates"] == 56
+    assert extraction["tables"] == 7
+
+    # Biggest refusal first, labelled for a human, with the cells themselves.
+    attention = extraction["needs_attention"]
+    assert [item["reason"] for item in attention] == ["no_unit", "ambiguous_unit"]
+    assert attention[0]["count"] == 37
+    assert "unit" in attention[0]["label"].lower()
+    assert "Coal production | 193.00" in attention[0]["examples"]
+
+    # A refused total row is the extractor working correctly, so it is reported
+    # separately and must not read as a problem.
+    assert [item["reason"] for item in extraction["ignored"]] == ["total_row"]
+    assert extraction["ignored"][0]["examples"] == []
+
+
+def test_a_clean_extraction_reports_nothing_to_attend_to(
+    client, store: Store, make_document
+) -> None:
+    """An empty list and "has not run yet" are different answers.
+
+    "Extraction refused nothing" is a real and reassuring statement about a clean
+    document. Collapsing it into the same shape as "extraction has not happened"
+    would hide it.
+    """
+    document = make_document("clean-report.pdf")
+    store.register_document(document)
+
+    before = client.get(f"/api/documents/{document.document_id}/progress").json()
+    assert before["extraction"] is None
+
+    store.documents.set_state(
+        document.document_id,
+        DocumentState.EXTRACTED,
+        progress={"extract": {"done": 149, "total": 149, "tables": 7, "skipped": {}}},
+    )
+
+    after = client.get(f"/api/documents/{document.document_id}/progress").json()
+    assert after["extraction"]["needs_attention"] == []
+    assert after["extraction"]["ignored"] == []
+    assert after["extraction"]["facts"] == 149
+
+
+def test_progress_marks_which_stages_are_behind_the_current_state(
+    client, store: Store, make_document
+) -> None:
+    """The checklist an officer reads while waiting."""
+    document = make_document("midway.pdf")
+    store.register_document(document)
+    store.documents.set_state(document.document_id, DocumentState.DIGITIZED)
+
+    body = client.get(f"/api/documents/{document.document_id}/progress").json()
+    done = {stage["name"]: stage["completed"] for stage in body["stages"]}
+
+    assert done["classify"] is True
+    assert done["digitize"] is True
+    assert done["extract"] is False
+    assert done["index"] is False
+    # Every stage carries its own description, so the checklist reads without a
+    # glossary.
+    assert all(stage["description"] for stage in body["stages"])
