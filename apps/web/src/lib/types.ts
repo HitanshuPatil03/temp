@@ -81,6 +81,30 @@ export type DocumentState =
 
 export type Sensitivity = "public" | "internal" | "restricted";
 
+/**
+ * The six ingestion stages, in order.
+ *
+ * Mirrors `STAGES` in `mrip/ingest/lifecycle.py`. Note these are *stage* names,
+ * not states: retrying stage `digitize` moves the document back to `classified`
+ * — the state before that stage — so the stage runs again.
+ */
+export type IngestStage =
+  | "classify"
+  | "digitize"
+  | "extract"
+  | "normalize"
+  | "validate"
+  | "index";
+
+export const INGEST_STAGES: readonly IngestStage[] = [
+  "classify",
+  "digitize",
+  "extract",
+  "normalize",
+  "validate",
+  "index",
+] as const;
+
 export interface MripDocument {
   document_id: string;
   content_hash: string;

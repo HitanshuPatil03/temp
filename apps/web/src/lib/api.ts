@@ -20,6 +20,7 @@ import type {
   Fact,
   FigureDelta,
   Health,
+  IngestStage,
   MTConvention,
   MripDocument,
   NormalizedPeriod,
@@ -174,6 +175,25 @@ export const api = {
     request<ConflictGroup[]>("/conflicts/detect", {
       method: "POST",
       query: { material_spread: materialSpread },
+    }),
+
+  /**
+   * Re-run a document's ingestion from a named stage.
+   *
+   * Safe to call repeatedly: every stage replaces its own output rather than
+   * appending to it, so a re-run produces the same rows, not a second copy. The
+   * document is moved back to the state *before* the named stage, and the normal
+   * chain carries it forward from there.
+   */
+  retryDocument: (documentId: string, stage: IngestStage) =>
+    request<{
+      document_id: string;
+      stage: string;
+      state: string;
+      job_id: string;
+    }>(`/documents/${documentId}/retry`, {
+      method: "POST",
+      body: JSON.stringify({ stage }),
     }),
 
   /**
