@@ -157,6 +157,7 @@ export const keys = {
   querySuggestions: () => "/query/suggestions",
   users: () => "/auth/users",
   audit: (query?: Query) => withQuery("/auth/audit", query).replace(/^\/api/, ""),
+  pipelineHealth: () => "/health/pipeline",
 };
 
 export const api = {

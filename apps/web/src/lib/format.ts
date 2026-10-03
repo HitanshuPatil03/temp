@@ -78,6 +78,24 @@ export function formatDate(iso: string): string {
 }
 
 /**
+ * A span of seconds in words — "47 s", "4 min", "2 h", "3 d".
+ *
+ * Takes a duration, not two timestamps, because the only correct place to do that
+ * subtraction is wherever the authoritative clock is. For operational readings
+ * that is the server: a browser with a wrong clock would otherwise invent an
+ * outage or hide one. It also keeps the component that renders this pure — no
+ * clock read during render, so no hydration mismatch and nothing for the React
+ * Compiler to object to.
+ */
+export function formatDuration(seconds: number): string {
+  const magnitude = Math.max(0, Math.round(seconds));
+  if (magnitude < 60) return `${magnitude} s`;
+  if (magnitude < 3600) return `${Math.round(magnitude / 60)} min`;
+  if (magnitude < 86_400) return `${Math.round(magnitude / 3600)} h`;
+  return `${Math.round(magnitude / 86_400)} d`;
+}
+
+/**
  * The citation string, mirroring `EvidenceRef.locator` on the backend.
  *
  * Duplicated deliberately: Pydantic properties are not serialised, and shipping

@@ -546,3 +546,51 @@ def test_a_handler_can_require_payload_fields(store):
     assert ctx.require("page") == 4
     with pytest.raises(PermanentJobError, match="missing 'document_id'"):
         ctx.require("document_id")
+
+
+# ------------------------------------------------------------ queue health
+
+
+def test_stats_reports_how_long_the_oldest_job_has_waited(queue):
+    """Depth alone cannot tell a busy queue from a stalled one.
+
+    Forty queued items is healthy if the oldest is twenty seconds old and an
+    outage if it is four hours old, so the age is the reading an alert watches.
+    Computed by the database rather than returned as a timestamp for a caller to
+    subtract: it is the same clock ``available_at`` was written against, so the
+    two cannot disagree, and a browser with a wrong clock cannot invent an outage.
+    """
+    queue.enqueue("document.digitize", {"document_id": "doc_1"})
+    queue._conn.execute(
+        sa.update(jobs).values(available_at=sa.func.now() - timedelta(minutes=42))
+    )
+
+    stats = queue.stats()
+
+    assert stats["pending"] == 1
+    age = stats["oldest_pending_age_seconds"]
+    assert age is not None
+    # Allow a wide band: the point is "about forty minutes", not a stopwatch.
+    assert 2_400 < age < 2_640, age
+
+
+def test_an_empty_queue_reports_no_age_rather_than_zero(queue):
+    """``None`` and ``0`` mean different things: nothing is waiting, versus
+    something is waiting and has just arrived. An alert on ``> 900`` must not be
+    fed a number that implies a backlog exists."""
+    stats = queue.stats()
+
+    assert stats["pending"] == 0
+    assert stats["oldest_pending_age_seconds"] is None
+
+
+def test_a_job_scheduled_for_later_is_not_reported_as_a_backlog(queue):
+    """A retry serving its backoff, or a scheduled sweep, is waiting *to become
+    due* — not waiting to be picked up. A raw subtraction makes that a negative
+    age, and a negative age sorts below every threshold while still looking like a
+    measurement. Floored at zero so it reads as "nothing is behind"."""
+    queue.enqueue("maintenance.prune_jobs", delay_seconds=3600)
+
+    stats = queue.stats()
+
+    assert stats["oldest_pending_age_seconds"] == 0.0
