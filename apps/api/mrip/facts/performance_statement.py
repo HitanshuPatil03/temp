@@ -425,12 +425,33 @@ def _find_cumulative(text: str) -> Period | None:
             if first.start.month != FISCAL_START_MONTH:
                 continue
             span = try_period(f"{first.start:%b %Y} - {second.start:%b %Y}")
-            if span is not None and span.kind in (
-                PeriodKind.MONTH_RANGE,
-                PeriodKind.MONTH,
-            ):
+            if span is not None and span.kind in _CUMULATIVE_KINDS:
                 return span
     return None
+
+
+#: What a year-to-date column header may legitimately resolve to.
+#:
+#: Wider than ``MONTH_RANGE`` because the normalizer gives a run of months that
+#: exactly covers a named fiscal period that period's own label — "APR'24 -
+#: SEP'24" is H1, and a September statement's cumulative column says so. That
+#: canonicalisation is what keeps one span from having two names, and a reader
+#: that only accepted ``MONTH_RANGE`` would start refusing the quarter-, half- and
+#: year-end statements, which are the four that matter most.
+#:
+#: ``MONTH`` stays in the set for the degenerate "AUG'24 - AUG'24". The kind this
+#: guard exists to exclude is not in it: a span that failed to rebuild comes back
+#: ``None``, and a *single* month header never reaches here — both halves of the
+#: range are required to be legible months before the rebuild is attempted.
+_CUMULATIVE_KINDS = frozenset(
+    {
+        PeriodKind.MONTH,
+        PeriodKind.MONTH_RANGE,
+        PeriodKind.FISCAL_QUARTER,
+        PeriodKind.FISCAL_HALF,
+        PeriodKind.FISCAL_YEAR,
+    }
+)
 
 
 def _lone_month(text: str) -> Period | None:

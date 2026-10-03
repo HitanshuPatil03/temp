@@ -250,13 +250,15 @@ def _month_range(text: str, raw: str) -> Period | None:
             fiscal_year=fiscal_year_label(fiscal),
         )
 
-    # A range that covers the whole fiscal year *is* that fiscal year, and must
-    # carry its canonical label. "April 2024 to March 2025" and "FY 2024-25" are
-    # the same twelve months, so they are the same measurement — and the system
-    # treats ``period_label`` as a measurement's identity in three places:
+    # A range that exactly covers a fiscal year, half or quarter *is* that
+    # period, and must carry its canonical label. "April 2024 to March 2025" and
+    # "FY 2024-25" are the same twelve months; "APR'24 - SEP'24" and
+    # "H1 FY2024-25" are the same six. They are therefore the same measurement —
+    # and the system treats ``period_label`` as a measurement's identity in three
+    # places:
     #
     #   - the conflict radar groups on it, so two sources disagreeing about that
-    #     year would never be put in the same group and the disagreement would
+    #     span would never be put in the same group and the disagreement would
     #     stay invisible;
     #   - ``resolve_figure`` matches on it, so asking for FY2024-25 would return
     #     one of the two and silently ignore the other;
@@ -264,17 +266,19 @@ def _month_range(text: str, raw: str) -> Period | None:
     #     sums every full-year fact, so a chart would add both together and report
     #     double — the same overcount this module's callers work hard to avoid.
     #
-    # Normalising here rather than patching those three is the point of having a
-    # normalizer: one span, one label, decided once.
-    if (start, end) == _fiscal_span(fiscal, 0, 12):
-        return _fiscal_year_period(
-            fiscal,
-            raw,
-            note=(
-                "written as a month range, recognised as the whole fiscal year: "
-                "the same twelve months as FY itself, so it carries the same label"
-            ),
-        )
+    # This is not hypothetical on the CIL corpus: a monthly performance statement
+    # prints its year-to-date column as "APR'24 - SEP'24", and that is exactly the
+    # half a quarterly return calls "H1". Normalising here rather than patching
+    # those three callers is the point of having a normalizer: one span, one
+    # label, decided once.
+    #
+    # The *kind* changes with the label, deliberately. A caller that needs to know
+    # the header was written as a run of months reads ``note``; a caller that needs
+    # to know it is not a single month — which is the check the performance
+    # statement reader actually makes — still gets a non-``MONTH`` kind.
+    canonical = _canonical_subperiod(fiscal, start, end, raw)
+    if canonical is not None:
+        return canonical
 
     return Period(
         kind=PeriodKind.MONTH_RANGE,
@@ -285,6 +289,67 @@ def _month_range(text: str, raw: str) -> Period | None:
         fiscal_year=fiscal_year_label(fiscal),
         note="cumulative: a run of months within one fiscal year, not a single month",
     )
+
+
+def _canonical_subperiod(fiscal: int, start: date, end: date, raw: str) -> Period | None:
+    """The named fiscal period a month range exactly covers, if it covers one.
+
+    Returns ``None`` for a run that is nobody's quarter, half or year —
+    "APR'24 - AUG'24" is five months and stays a month range, which is right: it
+    is a year-to-date figure with no other name.
+
+    Checked longest first so a twelve-month run is the year rather than being
+    caught by some shorter window, though the offsets make that unambiguous
+    anyway.
+    """
+    if (start, end) == _fiscal_span(fiscal, 0, 12):
+        return _fiscal_year_period(fiscal, raw, note=_WRITTEN_AS_A_RANGE)
+
+    for index, (offset, months) in _HALVES.items():
+        if (start, end) == _fiscal_span(fiscal, offset, months):
+            return _named_fiscal_period(PeriodKind.FISCAL_HALF, "H", index, fiscal, raw)
+
+    for index, (offset, months) in _QUARTERS.items():
+        if (start, end) == _fiscal_span(fiscal, offset, months):
+            return _named_fiscal_period(
+                PeriodKind.FISCAL_QUARTER, "Q", index, fiscal, raw
+            )
+
+    return None
+
+
+def _named_fiscal_period(
+    kind: PeriodKind, prefix: str, index: int, fiscal: int, raw: str
+) -> Period:
+    """A quarter or half, built the one way so its label cannot drift.
+
+    The same construction the ``Q1 FY2024-25`` branch uses. Shared rather than
+    repeated because the label *is* the measurement's identity: two sites
+    formatting it independently is two chances to disagree, and the disagreement
+    would present as a conflict the radar never raises.
+    """
+    offset, months = (
+        _QUARTERS[index] if kind is PeriodKind.FISCAL_QUARTER else _HALVES[index]
+    )
+    start, end = _fiscal_span(fiscal, offset, months)
+    return Period(
+        kind=kind,
+        start=start,
+        end=end,
+        label=f"{prefix}{index} {fiscal_year_label(fiscal)}",
+        raw=raw,
+        fiscal_year=fiscal_year_label(fiscal),
+        note=_WRITTEN_AS_A_RANGE,
+    )
+
+
+#: Why a period whose label names a quarter, half or year came back from a header
+#: that spelled out months. Kept on the period so a reader can tell the two apart
+#: when it matters, without the *label* having to.
+_WRITTEN_AS_A_RANGE = (
+    "written as a run of months, recognised as the named fiscal period covering "
+    "exactly that span — the same measurement, so it carries the same label"
+)
 
 
 def normalize_period(raw: str) -> Period:
