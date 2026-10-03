@@ -27,8 +27,8 @@ import { PageHeader } from "@/components/shell/page-header";
 import { EmptyState, ErrorState, Skeleton } from "@/components/ui/states";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { ApiError, api, fetcher, keys } from "@/lib/api";
-import { formatDate, humanize } from "@/lib/format";
-import type { AuditEntry, Role, UserAccount } from "@/lib/types";
+import { formatDate, formatDuration, humanize } from "@/lib/format";
+import type { AuditEntry, PipelineHealth, Role, UserAccount } from "@/lib/types";
 
 const ROLES: Role[] = ["viewer", "officer", "reviewer", "approver", "admin"];
 
@@ -62,8 +62,143 @@ export default function AdminPage() {
         description="Manage accounts and read the append-only audit trail. Every action here is itself audited."
       />
       <UsersCard users={users} />
+      <PipelineCard />
       <AuditCard />
     </main>
+  );
+}
+
+/**
+ * Is ingestion actually progressing?
+ *
+ * The first question an administrator has when someone says "my upload is
+ * stuck", and until now it was only answerable by curling `/health/pipeline`
+ * with an admin token — the endpoint existed, admin-gated and tested, with no
+ * caller.
+ *
+ * Queue depth alone would be misleading, which is why the endpoint reports the
+ * age of the oldest pending job too: forty queued items is healthy if the oldest
+ * is twenty seconds old and an outage if it is four hours old. That age is the
+ * number this card leads with.
+ */
+function PipelineCard() {
+  const health = useSWR<PipelineHealth>(keys.pipelineHealth(), fetcher, {
+    // Operational data goes stale in seconds, and an administrator on this page
+    // is watching it move. Cheap: four aggregates in one round trip.
+    refreshInterval: 5000,
+  });
+
+  const queue = health.data?.queue;
+  const waiting = queue ? queue.pending + queue.in_flight : 0;
+  const oldestAge = queue?.oldest_pending_age_seconds ?? null;
+  // Fifteen minutes. Long enough that a slow 400-page OCR does not trip it,
+  // short enough that a worker pool that died over lunch is caught before the
+  // afternoon's uploads pile up behind it. The age comes from the database's
+  // clock, so this comparison is a pure one on a number the server vouched for.
+  const stalled = oldestAge !== null && oldestAge > 15 * 60;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Ingestion</CardTitle>
+        <CardDescription>
+          Whether work is moving through the pipeline. Counts span every
+          subsidiary, which is why this is administrators only.
+        </CardDescription>
+      </CardHeader>
+      <CardBody>
+        {health.error ? (
+          <ErrorState
+            title="Cannot read pipeline health"
+            detail={
+              health.error instanceof ApiError
+                ? health.error.detail
+                : "The API is not reachable."
+            }
+          />
+        ) : health.isLoading || !health.data || !queue ? (
+          <Skeleton className="h-20" />
+        ) : (
+          <div className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-4">
+              <Stat label="Queued" value={waiting} />
+              <Stat
+                label="Oldest waiting"
+                value={oldestAge !== null ? formatDuration(oldestAge) : "—"}
+                tone={stalled ? "critical" : undefined}
+              />
+              <Stat
+                label="Needs a person"
+                value={health.data.needs_attention}
+                tone={health.data.needs_attention > 0 ? "critical" : undefined}
+              />
+              <Stat label="Handlers" value={health.data.registered_job_kinds.length} />
+            </div>
+
+            {stalled ? (
+              <p role="alert" className="text-xs leading-relaxed text-critical">
+                The oldest queued job has been waiting more than fifteen minutes.
+                Either no worker is running, or one is holding a lease it cannot
+                finish. Check that <span className="font-mono">mrip-worker</span> is
+                up before re-running anything.
+              </p>
+            ) : null}
+
+            <div>
+              <p className="text-xs font-medium text-ink-2">Documents by state</p>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {Object.entries(health.data.documents_by_state)
+                  .filter(([, count]) => count > 0)
+                  .map(([state, count]) => (
+                    <Badge
+                      key={state}
+                      tone={
+                        state === "ready"
+                          ? "good"
+                          : state === "failed" || state === "quarantined"
+                            ? "critical"
+                            : "neutral"
+                      }
+                    >
+                      {humanize(state)} {count}
+                    </Badge>
+                  ))}
+                {Object.values(health.data.documents_by_state).every(
+                  (count) => count === 0,
+                ) ? (
+                  <span className="text-xs text-ink-3">
+                    No documents ingested yet.
+                  </span>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        )}
+      </CardBody>
+    </Card>
+  );
+}
+
+function Stat({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string | number;
+  tone?: "critical";
+}) {
+  return (
+    <div>
+      <p className="text-xs text-ink-3">{label}</p>
+      <p
+        className={`tnum mt-0.5 text-lg font-medium ${
+          tone === "critical" ? "text-critical" : "text-ink"
+        }`}
+      >
+        {value}
+      </p>
+    </div>
   );
 }
 

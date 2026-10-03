@@ -526,10 +526,18 @@ class JobQueue:
     def stats(self) -> dict[str, Any]:
         """Queue health in one round trip.
 
-        ``oldest_pending_at`` is the number that actually matters. A depth of 40
-        is healthy if the oldest item is twenty seconds old and an outage if it
-        is four hours old, so a probe that reported only depth would miss a
-        stalled worker pool entirely.
+        ``oldest_pending_age_seconds`` is the number that actually matters. A
+        depth of 40 is healthy if the oldest item is twenty seconds old and an
+        outage if it is four hours old, so a probe that reported only depth would
+        miss a stalled worker pool entirely.
+
+        The age is computed **here**, by the database, rather than left for a
+        caller to subtract from a timestamp. Two reasons: the database's clock is
+        the one the queue's own ``available_at`` was written against, so the
+        subtraction cannot disagree with itself; and a browser with a wrong clock
+        would otherwise report an outage that is not happening, or miss one that
+        is. A reading that decides whether someone is paged should not depend on
+        whose watch is right.
         """
         row = (
             self._conn.execute(
@@ -549,6 +557,13 @@ class JobQueue:
                     sa.func.min(jobs.c.available_at)
                     .filter(jobs.c.state == JobState.PENDING.value)
                     .label("oldest_pending_at"),
+                    sa.func.extract(
+                        "epoch",
+                        sa.func.now()
+                        - sa.func.min(jobs.c.available_at).filter(
+                            jobs.c.state == JobState.PENDING.value
+                        ),
+                    ).label("oldest_pending_age_seconds"),
                     sa.func.min(jobs.c.lease_expires_at)
                     .filter(jobs.c.state == JobState.CLAIMED.value)
                     .label("earliest_lease_expiry"),
@@ -557,11 +572,18 @@ class JobQueue:
             .mappings()
             .one()
         )
+        age = row["oldest_pending_age_seconds"]
+        # Negative for a job deliberately scheduled in the future (a retry's
+        # backoff, a scheduled sweep): that job is waiting *to become* due, not
+        # waiting *to be picked up*, and reporting it as a backlog age would read
+        # as a stall. Floored at zero for that reason.
+        oldest_age = max(0.0, float(age)) if age is not None else None
         return {
             "pending": int(row["pending"] or 0),
             "in_flight": int(row["in_flight"] or 0),
             "dead": int(row["dead"] or 0),
             "failed": int(row["failed"] or 0),
             "oldest_pending_at": row["oldest_pending_at"],
+            "oldest_pending_age_seconds": oldest_age,
             "earliest_lease_expiry": row["earliest_lease_expiry"],
         }

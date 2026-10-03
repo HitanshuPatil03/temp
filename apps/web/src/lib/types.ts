@@ -267,6 +267,38 @@ export interface Health {
   problem_statement: string;
 }
 
+/**
+ * Whether ingestion is actually progressing. Admin only — these counters span
+ * every subsidiary, and a corpus-wide document count discloses the scale of
+ * other subsidiaries' holdings.
+ */
+export interface PipelineHealth {
+  queue: {
+    pending: number;
+    in_flight: number;
+    dead: number;
+    failed: number;
+    oldest_pending_at: string | null;
+    /**
+     * How long the oldest pending job has been waiting. **The number that
+     * matters** — a depth of 40 is healthy at twenty seconds and an outage at
+     * four hours.
+     *
+     * Computed by the database rather than subtracted from `oldest_pending_at`
+     * here on purpose: a browser with a wrong clock would otherwise report an
+     * outage that is not happening, or miss one that is, and a reading that
+     * decides whether someone is paged must not depend on whose watch is right.
+     * It also keeps the component pure — no clock read during render.
+     */
+    oldest_pending_age_seconds: number | null;
+    earliest_lease_expiry: string | null;
+  };
+  documents_by_state: Record<string, number>;
+  /** Documents and jobs that need a person, as one number an alert can watch. */
+  needs_attention: number;
+  registered_job_kinds: string[];
+}
+
 // ------------------------------------------------------------------ admin
 
 export type Role = "viewer" | "officer" | "reviewer" | "approver" | "admin";
