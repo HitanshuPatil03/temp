@@ -327,6 +327,17 @@ definitions are in ARCHITECTURE §14.
 | 9.4 | **Report preparation time**, upload → published | Phase 5, plus a **manual baseline recorded with CMPDI** |
 | 9.5 | **Extraction + attribution accuracy** by document class | The gold corpus (3.6) |
 | 9.6 | An operations dashboard where **every percentage names its denominator** | 9.1–9.5 |
+| 9.7 | **Query plans at corpus scale** | ✅ `apps/api/benchmarks/` seeds the real corpus shape — 3,404 documents, 1M facts — and prints the plan for each hot query. Found the comparison chart reading the whole table for exactly the people with the widest remit: both `facts` indexes lead with `entity_id`, which an HQ-wide scope does not constrain, so the HQ dashboard took 125 ms where a subsidiary officer's identical chart took 10 ms. Fixed by a partial index over the 8% of rows a series can return (migration `0007`): 125 ms → **3.8 ms**, for 720 kB. The exact-figure path a parliamentary answer depends on was already 1 ms |
+
+**Known scaling limit, recorded rather than guessed at.** The HQ-wide conflict sweep
+is a full-corpus aggregate: 7.2 s at 1M facts. That is free as the scheduler's
+23-minute job, which is what correctness actually depends on. But
+`POST /conflicts/detect` offers the same work synchronously to a reviewer who has
+just corrected something — 304 ms scoped to one subsidiary, 7.2 s for an admin. At
+four or five times this corpus the admin case stops fitting in an HTTP request and
+should become a job, the way `/topics/extract` already did. Not pre-emptively
+restructured, because it is a convenience over a sweep that runs anyway, and
+turning a call that returns the groups into a 202 changes the screen.
 
 **Gate.** Every figure quoted about this platform's performance is produced by a command
 in this repository that anyone can re-run, against data that is not synthetic. A number

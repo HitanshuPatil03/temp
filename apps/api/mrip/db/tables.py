@@ -356,12 +356,35 @@ facts = sa.Table(
         "(conf_answer IS NULL OR (conf_answer BETWEEN 0 AND 1))",
         name="confidences_are_probabilities",
     ),
-    # The series endpoint's shape: entity × metric × fiscal year.
+    # The single-figure lookup: entity × metric × fiscal year. Leads with
+    # entity_id, which every *scoped* read constrains.
     sa.Index("ix_facts_lookup", "entity_id", "metric", "fiscal_year"),
     sa.Index("ix_facts_document", "document_id"),
     sa.Index("ix_facts_status", "status"),
     # The conflict radar groups on exactly this key.
     sa.Index("ix_facts_conflict_key", "entity_id", "metric", "unit", "period_label"),
+    # The comparison series. Leads with `metric` because an HQ-wide scope does
+    # not constrain entity_id — an HQ officer sees every subsidiary — so the two
+    # indexes above are unusable for the chart on their dashboard, and the
+    # planner read the whole table: 125 ms over 1M facts, against 10 ms for a
+    # subsidiary officer's scoped version of the same chart.
+    #
+    # Partial, because only a validated full-fiscal-year fact can appear in a
+    # series: 8% of the corpus, so 720 kB against 9 MB for ix_facts_lookup, and
+    # eleven inserts in twelve skip the index entirely. Measured 3.8 ms after.
+    #
+    # The predicate restates `entity_metric_series`' definition of a figure a
+    # series may return. Widen that filter and this has to move with it.
+    sa.Index(
+        "ix_facts_series",
+        "metric",
+        "fiscal_year",
+        "entity_id",
+        "unit",
+        postgresql_where=sa.text(
+            "status = 'validated' AND (period_end - period_start) >= 350"
+        ),
+    ),
 )
 
 

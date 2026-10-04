@@ -362,6 +362,13 @@ class FactRepository:
         # Date subtraction yields integer days in PostgreSQL. A full fiscal year
         # is 364–366 days; a month is ~30 and a part-year cumulative (Apr–Sep)
         # ~180, so the floor cleanly admits the annual fact and nothing else.
+        #
+        # This predicate and `status == VALIDATED` below are **repeated in the
+        # partial index** `ix_facts_series` (migration 0007), which is what keeps
+        # this query off a full table scan — 3.8 ms against 125 ms over a
+        # 1M-fact corpus, measured HQ-wide. Widening either condition silently
+        # stops the index matching and puts the dashboard back on a sequential
+        # scan, so a change here needs a migration beside it.
         full_year = (facts.c.period_end - facts.c.period_start) >= 350
 
         query = (
