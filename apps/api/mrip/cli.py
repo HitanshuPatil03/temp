@@ -399,6 +399,48 @@ def cmd_audit(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_verify(args: argparse.Namespace) -> int:
+    """Check that the corpus's evidence is still there.
+
+    The verification half of roadmap 8.5 — "restore into a clean host and verify,
+    not just ``pg_dump`` in cron". Returns non-zero when something is wrong, so it
+    can run from monitoring and mean something.
+    """
+    from mrip.integrity import verify_corpus
+
+    with store_session() as store:
+        report = verify_corpus(store, deep=args.deep, examples=args.examples)
+
+    print(report.describe())
+    if report.ok:
+        if report.warnings:
+            # Printed, not failed. See Finding.severity: a cron check that exits
+            # non-zero on residue is a cron check someone silences.
+            print(
+                f"\nExit 0: {len(report.warnings)} warning(s) above, "
+                "but every answer this deployment gives is sound.",
+            )
+        return 0
+
+    # The schema mismatch is counted separately because it is not one of the
+    # findings — it invalidates all of them. Saying "0 problems" while exiting
+    # non-zero, which an earlier version of this did, is the kind of
+    # self-contradiction that makes an operator distrust the whole report.
+    reasons: list[str] = []
+    if report.schema_mismatch:
+        reasons.append("the schema is not the one this code expects")
+    if report.errors:
+        plural = "" if len(report.errors) == 1 else "s"
+        reasons.append(
+            f"{len(report.errors)} problem{plural} make an answer wrong or unverifiable"
+        )
+    print(
+        f"\nExit 1: {'; '.join(reasons)}. Nothing was changed — this command only reads.",
+        file=sys.stderr,
+    )
+    return 1
+
+
 def cmd_status(args: argparse.Namespace) -> int:
     """What this deployment is, before anyone asks it to do anything."""
     settings = get_settings()
@@ -560,6 +602,33 @@ def build_parser() -> argparse.ArgumentParser:
 
     status = subparsers.add_parser("status", help="deployment summary")
     status.set_defaults(handler=cmd_status)
+
+    verify = subparsers.add_parser(
+        "verify",
+        help="check that every document's evidence is still in the blob store",
+        description=(
+            "Reads only. Checks that every registered document's bytes are present, "
+            "that every figure a stored report pinned still resolves, and that the "
+            "database is at the revision the code expects. Exits non-zero if "
+            "anything is wrong, so it can run from cron or after a restore."
+        ),
+    )
+    verify.add_argument(
+        "--deep",
+        action="store_true",
+        help=(
+            "re-hash every blob and compare it to its own name. Reads every byte of "
+            "the corpus, so this is the post-restore or weekly run — it is what "
+            "catches bit rot and a tampered volume"
+        ),
+    )
+    verify.add_argument(
+        "--examples",
+        type=int,
+        default=5,
+        help="how many identifiers to print per problem (default 5)",
+    )
+    verify.set_defaults(handler=cmd_verify)
 
     create = subparsers.add_parser("create-user", help="create an account")
     create.add_argument("username")
