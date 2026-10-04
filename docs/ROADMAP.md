@@ -302,7 +302,7 @@ credentials exist.
 | 8.2 | Security pass: dependency audit, secret scanning, SQL/path-traversal review, rate limiting, signed short-lived document URLs |
 | 8.3 | Audit log export + retention compliance |
 | 8.4 | Observability: OpenTelemetry traces, Prometheus metrics, dashboards, alert rules — all local |
-| 8.5 | **Backup, restore and a DR drill** — restore into a clean host and verify, not just `pg_dump` in cron |
+| 8.5 | **Backup, restore and a DR drill** — restore into a clean host and verify, not just `pg_dump` in cron | 🔄 the *verify* half exists: `mrip-admin verify` checks that every registered document's bytes are in the blob store, that `--deep` re-hashes each one against its own name, that every figure a stored report pinned still resolves, and that the schema is the revision the code expects. That link has no foreign key behind it — the blob store is outside the database — so a database and a blob directory restored to different points produce a corpus that answers every query correctly until someone clicks through to a source. Exits non-zero on anything that makes an answer wrong; orphan blobs are a *warning*, because a cron check that fails on residue is one an operator silences. The backup and drill halves remain |
 | 8.6 | Load + soak test with p95 gates in CI |
 | 8.7 | **Offline install bundle** — image, migrations, vendored wheels, model weights with checksums, upgrade and rollback runbook |
 | 8.8 | Accessibility audit: WCAG 2.2 AA, keyboard-complete, colour-vision validated |
