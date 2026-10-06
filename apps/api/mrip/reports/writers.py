@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any
 
 from mrip.reports.grouping import format_indian
 from mrip.reports.render import ReportIncompleteError
+from mrip.reports.stamps import report_date, report_timestamp
 
 if TYPE_CHECKING:
     from mrip.reports.template import ReportTemplate
@@ -166,7 +167,7 @@ def render_docx(
 
     footer = document.add_paragraph(
         _FOOTER.format(
-            at=manifest.generated_at.isoformat(),
+            at=report_timestamp(manifest.generated_at),
             template=manifest.template_id,
             version=manifest.template_version,
         )
@@ -261,7 +262,7 @@ def render_xlsx(
     about = workbook.create_sheet("About")
     about.append(["Report", manifest.title])
     about.append(["Template", f"{manifest.template_id} v{manifest.template_version}"])
-    about.append(["Generated", manifest.generated_at.isoformat()])
+    about.append(["Generated", report_timestamp(manifest.generated_at)])
     about.append(["State", manifest.state.value])
     about.append(["Provenance", _PROVENANCE])
     for section in template.sections:
@@ -304,7 +305,7 @@ def render_pptx(
     opening.shapes.title.text = manifest.title
     opening.placeholders[1].text = (
         f"{manifest.template_id} v{manifest.template_version} · "
-        f"{manifest.generated_at.date().isoformat()}"
+        f"{report_date(manifest.generated_at)}"
     )
 
     for section in template.sections:

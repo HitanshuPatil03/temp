@@ -16,6 +16,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from mrip.reports.grouping import format_indian
+from mrip.reports.stamps import report_timestamp
 
 if TYPE_CHECKING:
     from mrip.reports.template import ReportTemplate
@@ -101,7 +102,7 @@ def render_markdown(
         out.append("")
 
     footer = (
-        f"_Generated {manifest.generated_at.isoformat()} from template "
+        f"_Generated {report_timestamp(manifest.generated_at)} from template "
         f"{manifest.template_id} v{manifest.template_version}._"
     )
     out.append(footer)
