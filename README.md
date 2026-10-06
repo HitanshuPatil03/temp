@@ -108,7 +108,71 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full design and
 > populated system in about ten minutes, with demonstration accounts, and says what to
 > click to test each claim — including how to try to break them.
 
-Requires **Docker**, **Python 3.12+** and **Node 22+**.
+**One command, from a fresh clone.** Requires only **Docker**.
+
+```bash
+./run.sh
+```
+
+On Windows, from PowerShell:
+
+```powershell
+.\run.ps1
+```
+
+It checks the host, picks free ports if 3000/8000/5432 are taken, builds the images,
+waits for the API to answer, seeds a demonstration corpus through the **real** pipeline,
+and prints the five accounts to sign in with. Every refusal it can produce names a
+remedy, because the failure that costs an hour is the one that does not say which of
+Docker, a port, a migration or a missing account went wrong.
+
+```
+  Open   http://localhost:3000
+
+  Password   sih-demo-2026-mrip
+
+      USERNAME         ROLE      SEES          WHY YOU'D USE IT
+      admin            admin     all entities  Deployment administration, audit log
+      hq.officer       officer   all entities  Upload, generate reports, CIL-wide
+      secl.officer     officer   secl only     Row-level scope — a shorter document list
+      cmpdi.reviewer   reviewer  all entities  Adjudicates conflicting figures
+      ministry.viewer  viewer    all entities  Read only — every write is refused
+```
+
+Start with `hq.officer`. Signing in as `secl.officer` in a second browser profile shows
+the same corpus through one subsidiary's access, which is the access model demonstrated
+rather than described.
+
+```bash
+./run.sh stop       # stop it, keep the data
+./run.sh reset      # destroy the data and start fresh (asks first)
+./run.sh logs api   # follow one service
+./run.sh status     # what is running, on which ports
+```
+
+There is **no default administrator** outside the demonstration seed, because a
+well-known first password is the most common way an on-prem system is compromised.
+For a real deployment, create the first account on the host:
+
+```bash
+mrip-admin create-user admin --role admin --entities '*' --no-force-change
+```
+
+**The local model is optional.** Narrative answers and the prose sections of a report use
+it; every figure, table, chart, search result and conflict works without it — the
+exact-figure path reaches no model at all. To enable it:
+
+```bash
+ollama pull qwen3:8b
+```
+
+`run.sh` detects it and points the containers at the host runtime. Nothing leaves the
+host. With `MRIP_LLM_ENABLED=false` the deterministic paths are unchanged and the
+generative ones say so rather than degrading silently — CI runs the suite both ways.
+
+### Running the pieces by hand
+
+For development, where you want a reloading API and the Next dev server:
 
 ```bash
 cp .env.example .env
@@ -119,25 +183,11 @@ docker compose up -d postgres
 cd apps/api && python -m pip install -e ".[dev]" && alembic upgrade head
 ```
 
-There is **no default administrator**, because a well-known first password is the most
-common way an on-prem system is compromised. Create one on the host:
-
-```bash
-mrip-admin create-user admin --role admin --entities '*' --no-force-change
-```
-
-For something to look at, seed a small synthetic corpus — four documents through the
-**real** pipeline, including a revised report that genuinely disagrees with the first:
-
 ```bash
 mrip-admin seed-demo
 ```
 
-It prints five accounts, one per role, sharing the password `sih-demo-2026-mrip`. Every
-seeded document is flagged synthetic and badged in the UI, because a demonstration figure
-must never be mistaken for a government source.
-
-Then run the three processes — API, worker, scheduler:
+Then the three processes — API, worker, scheduler — and the web dev server:
 
 ```bash
 python -m uvicorn mrip.main:app --reload --port 8000
@@ -155,26 +205,9 @@ mrip-scheduler
 cd apps/web && npm install && npm run dev
 ```
 
-**The local model is optional.** Narrative answers and the prose sections of a report use
-it; every figure, table, chart, search result and conflict works without it. To enable it:
-
-```bash
-ollama pull qwen3:8b
-```
-
-The platform talks to Ollama on `127.0.0.1:11434` and nothing leaves the host. With
-`MRIP_LLM_ENABLED=false` the deterministic paths are unchanged and the generative ones say
-so rather than degrading silently — CI runs the suite both ways.
-
 Open <http://localhost:3000>, sign in, and upload a document from the Documents page.
 The browser never calls the API directly and never holds a token: the session lives in an
 httpOnly cookie, and `apps/web/src/proxy.ts` turns it into a bearer header server-side.
-
-Or bring the whole stack up at once:
-
-```bash
-docker compose up -d
-```
 
 ### No Docker? (Windows / WSL2)
 
