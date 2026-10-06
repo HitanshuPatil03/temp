@@ -17,10 +17,10 @@ from __future__ import annotations
 import math
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field, model_validator
 
-from mrip.api.deps import ScopeDep, SourceIpDep, StoreDep, require_role
+from mrip.api.deps import ScopeDep, SettingsDep, SourceIpDep, StoreDep, require_role
 from mrip.auth.principal import Principal
 from mrip.schemas import ConflictGroup, Fact, FactStatus, Role
 
@@ -172,6 +172,9 @@ def detect_conflicts(
     store: StoreDep,
     scope: ScopeDep,
     reviewer: ReviewerDep,
+    settings: SettingsDep,
+    request: Request,
+    caller_ip: SourceIpDep,
     material_spread: float | None = Query(default=None, ge=0.0, le=1.0),
 ) -> list[ConflictGroup]:
     """Re-run the conflict radar over the caller's facts.
@@ -180,8 +183,61 @@ def detect_conflicts(
     role rather than being a read anyone may trigger. The scheduled sweep does
     the same work corpus-wide every 23 minutes; this exists for the reviewer who
     has just corrected something and wants the radar refreshed now.
+
+    **The threshold may be tightened, never loosened.** Detection keeps only the
+    groups whose relative spread reaches the threshold, then deletes every
+    unresolved conflict that is no longer in that set and returns its facts from
+    ``conflicted`` to ``extracted``. So a request carrying a *looser* spread than
+    the deployment's does not merely show fewer rows — it erases the open radar
+    for the caller's scope and un-flags the figures behind it. One call with
+    ``material_spread=1.0`` would clear every unadjudicated disagreement an
+    officer's scope contains, which is precisely the mechanism that stops two
+    contradictory figures from both being usable in a report.
+
+    A tighter value is harmless: it finds *more* disagreements, and the next
+    scheduled sweep reconciles back to policy. So tightening is allowed and
+    loosening is refused, rather than both being silently clamped — a reviewer
+    who asked for 0.5 and quietly got 0.005 would have no idea why the screen
+    disagreed with the request.
     """
-    return store.detect_conflicts(scope, material_spread=material_spread)
+    configured = settings.conflict_material_spread
+    if material_spread is not None and material_spread > configured:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "error": "spread_too_loose",
+                "message": (
+                    "The materiality threshold is deployment policy. You may "
+                    "tighten it to see more disagreements, not loosen it: a "
+                    "looser value deletes the unresolved conflicts that no "
+                    "longer qualify instead of hiding them."
+                ),
+                "requested": material_spread,
+                "configured": configured,
+            },
+        )
+
+    groups = store.detect_conflicts(scope, material_spread=material_spread)
+    # Audited because it is destructive, not because it is a decision. The row
+    # is what distinguishes "the radar emptied because a reviewer re-ran it" from
+    # "the radar emptied and nobody knows why".
+    store.audit.record(
+        "conflicts.detected",
+        actor_user_id=reviewer.user_id,
+        actor_username=reviewer.username,
+        subject_type="corpus",
+        entity_scope=str(scope),
+        detail={
+            "material_spread": material_spread
+            if material_spread is not None
+            else configured,
+            "tightened": material_spread is not None and material_spread < configured,
+            "open_conflicts": len(groups),
+        },
+        request_id=getattr(request.state, "request_id", None),
+        source_ip=caller_ip,
+    )
+    return groups
 
 
 @router.post("/conflicts/{conflict_id}/resolve")

@@ -257,6 +257,120 @@ def test_no_module_locates_itself_by_counting_parent_directories():
     )
 
 
+#: Route handlers that do not call ``audit.record`` themselves because a service
+#: function does it inside the same transaction — which is the better place for
+#: it: the audit row and the state change commit or roll back together, and the
+#: code that knows *what* happened writes the row. Maps handler name to the
+#: function responsible, and the test checks that function really does audit, so
+#: this cannot become a way to wave a route through.
+AUDITS_IN_SERVICE = {
+    "login": "authenticate",
+    "set_own_password": "change_password",
+}
+
+#: State-changing handlers that legitimately leave no trail. Empty, and worth
+#: keeping that way — every entry is a question an auditor cannot get an answer
+#: to. Add one only with a reason that survives being read aloud.
+NO_AUDIT_NEEDED: dict[str, str] = {}
+
+
+def _audits_directly(node: ast.AST) -> bool:
+    """Whether this function's own body calls ``<something>.audit.record(...)``."""
+    for sub in ast.walk(node):
+        if not (isinstance(sub, ast.Call) and isinstance(sub.func, ast.Attribute)):
+            continue
+        if sub.func.attr != "record":
+            continue
+        owner = sub.func.value
+        if isinstance(owner, ast.Attribute) and owner.attr == "audit":
+            return True
+    return False
+
+
+def test_every_state_changing_route_leaves_an_audit_trail():
+    """ARCHITECTURE §9 — "who changed this figure?" must always have an answer.
+
+    The audit log is what makes this platform defensible to the people who audit
+    Coal India rather than merely useful to the people who run it. A route that
+    mutates state without writing a row converts "the trail is complete" into
+    "the trail is complete except where someone forgot".
+
+    Derived from the routes rather than written out — the opposite choice from
+    tests/test_authorization_matrix.py, and deliberately so. There, a second
+    independent statement of the rules is the point. Here the point is that a
+    *new* route fails this test until somebody decides whether it audits, so the
+    list has to be discovered rather than maintained.
+
+    It found one: ``POST /conflicts/detect`` audited nothing, while deleting
+    every unresolved conflict in the caller's scope that no longer met the
+    materiality threshold — a threshold the caller supplied. See
+    tests/test_conflict_radar.py.
+    """
+    mutating = {"post", "put", "patch", "delete"}
+    offenders: list[str] = []
+    checked = 0
+
+    for file in sorted((PACKAGE / "api").glob("*.py")):
+        tree = ast.parse(file.read_text(encoding="utf-8"), filename=str(file))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+                continue
+            methods = [
+                decorator.func.attr
+                for decorator in node.decorator_list
+                if isinstance(decorator, ast.Call)
+                and isinstance(decorator.func, ast.Attribute)
+                and decorator.func.attr in mutating
+            ]
+            if not methods:
+                continue
+            checked += 1
+            if _audits_directly(node):
+                continue
+            if node.name in NO_AUDIT_NEEDED or node.name in AUDITS_IN_SERVICE:
+                continue
+            offenders.append(f"{file.name}:{node.name} ({methods[0].upper()})")
+
+    assert checked >= 15, (
+        f"only found {checked} state-changing routes, so this test has stopped "
+        "looking at the real thing"
+    )
+    assert offenders == [], (
+        "These routes change state and write no audit row:\n  "
+        + "\n  ".join(offenders)
+        + "\nEither call store.audit.record(...), or declare the route in "
+        "AUDITS_IN_SERVICE if a service function audits inside the same "
+        "transaction, or in NO_AUDIT_NEEDED with a reason."
+    )
+
+
+def test_the_routes_that_delegate_auditing_really_do_audit_somewhere():
+    """``AUDITS_IN_SERVICE`` is an exemption, so it has to be checked.
+
+    Otherwise the entry outlives the function it points at: someone refactors
+    the service, the audit call goes with it, and the route is still waved
+    through by a dictionary nobody re-read.
+    """
+    auditing: set[str] = set()
+    for file in sorted(PACKAGE.rglob("*.py")):
+        tree = ast.parse(file.read_text(encoding="utf-8"), filename=str(file))
+        for node in ast.walk(tree):
+            if isinstance(
+                node, ast.FunctionDef | ast.AsyncFunctionDef
+            ) and _audits_directly(node):
+                auditing.add(node.name)
+
+    missing = {
+        handler: service
+        for handler, service in AUDITS_IN_SERVICE.items()
+        if service not in auditing
+    }
+    assert missing == {}, (
+        f"These routes are exempted because a service audits for them, but that "
+        f"function no longer contains an audit.record call: {missing}"
+    )
+
+
 def test_no_application_code_can_disable_the_audit_trigger():
     """ARCHITECTURE §9 — the audit log is append-only, with no exceptions.
 
