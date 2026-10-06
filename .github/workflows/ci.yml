@@ -143,6 +143,81 @@ jobs:
       - name: Build
         run: npm run build
 
+  stack:
+    name: Deployment — images build and the stack serves
+    runs-on: ubuntu-latest
+
+    # The jobs above test the source. This one tests the thing a reviewer or an
+    # operator actually runs, which is not the same artefact and had drifted
+    # badly: the web image could not build (a COPY of a public/ directory that
+    # does not exist), the API image crashed on import (the repository root was
+    # a parent count that is only true in a checkout), and neither context had
+    # a .dockerignore, so the host's node_modules overwrote the one installed
+    # for Alpine. Every one of those was invisible to a test suite that imports
+    # the package directly, and fatal to `docker compose up`.
+    steps:
+      - uses: actions/checkout@v5
+
+      # Running the script rather than `docker compose up` on purpose: the
+      # script is what the README tells a reviewer to run, so it is the thing
+      # that has to keep working. It builds, waits for health, and seeds.
+      - name: ./run.sh brings the stack up and seeds it
+        run: ./run.sh
+
+      - name: The API answers
+        run: |
+          curl -fsS http://127.0.0.1:8000/api/health | tee /dev/stderr \
+            | grep -q '"status":"ok"'
+
+      # The credentials the script prints have to be the credentials that work.
+      # A launcher that confidently prints a password nobody can sign in with
+      # is worse than one that prints nothing.
+      - name: The printed credentials sign in
+        run: |
+          code=$(curl -s -o login.json -w '%{http_code}' \
+            -X POST http://127.0.0.1:8000/api/auth/login \
+            -H 'Content-Type: application/json' \
+            -d '{"username":"hq.officer","password":"sih-demo-2026-mrip"}')
+          echo "login -> $code"
+          test "$code" = "200"
+          grep -q access_token login.json
+
+      # Seeding runs the real pipeline, so facts with evidence behind them are
+      # the proof that ingestion works in the image and not only in the tests.
+      - name: The seeded corpus has evidence-backed facts
+        run: |
+          token=$(sed -n 's/.*"access_token":"\([^"]*\)".*/\1/p' login.json)
+          curl -fsS -H "Authorization: Bearer $token" \
+            'http://127.0.0.1:8000/api/facts?limit=1' > facts.json
+          grep -q '"document_id"' facts.json
+          grep -q '"cell_ref"' facts.json
+
+      - name: The web server serves
+        run: curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3000/
+
+      # A worker that cannot import the package is a stack that ingests nothing,
+      # and it fails quietly — every read would still answer.
+      - name: The worker and scheduler are alive
+        run: |
+          docker compose ps
+          for service in worker scheduler; do
+            running=$(docker compose ps --status running --format '{{.Service}}' \
+              | grep -c "^${service}$" || true)
+            test "$running" = "1" || {
+              echo "::error::${service} is not running"
+              docker compose logs "$service"
+              exit 1
+            }
+          done
+
+      - name: Logs on failure
+        if: failure()
+        run: docker compose logs --tail=120
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
+
   licences:
     name: Dependency licences
     runs-on: ubuntu-latest
