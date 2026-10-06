@@ -23,6 +23,13 @@ ENV NEXT_TELEMETRY_DISABLED=1
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npm run build
+# Next serves `public/` if it exists, and this app currently has no static
+# assets, so the directory is absent from the repository. The runtime stage
+# below still has to copy it: a COPY whose source is missing fails the build,
+# which is why `docker compose up --build` could not build the web image at
+# all. Creating it here keeps the runtime stage unconditional and costs an
+# empty directory.
+RUN mkdir -p /app/public
 
 # ------------------------------------------------------------- runtime stage
 FROM node:22-alpine AS runtime

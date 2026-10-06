@@ -1,0 +1,48 @@
+# What never belongs in the API image's build context.
+#
+# Python's build artefacts are platform- and version-specific: a __pycache__
+# written by Windows CPython 3.13 is dead weight in a Linux image at best, and
+# a stale .pyc shadowing an edited .py at worst. Virtualenvs are worse again —
+# they carry absolute paths and compiled extensions from another machine.
+
+# Compiled and cached bytecode.
+__pycache__
+*.py[cod]
+*.egg-info
+.eggs
+build
+dist
+
+# Local virtualenvs.
+.venv
+venv
+env
+
+# Tool caches. None of these affect the image; all of them are large.
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+htmlcov
+
+# Local-only configuration. Settings come from the environment in a container;
+# a developer's .env would silently override them.
+.env
+.env.*
+!.env.example
+
+# Version control and editor state.
+.git
+.gitignore
+.vscode
+.idea
+
+# Developer-only material. The suite runs in CI against a real PostgreSQL, and
+# the benchmarks need a scratch database — neither belongs in a runtime image.
+tests
+benchmarks
+
+# Runtime data. The blob store and database live in volumes; a copy baked into
+# the image would be both stale and, since blobs *are* the evidence, misleading.
+data
+blobs

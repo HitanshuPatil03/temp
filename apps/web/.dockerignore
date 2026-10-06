@@ -1,0 +1,42 @@
+# What never belongs in the web image's build context.
+#
+# Without this file `COPY . .` in the build stage copies the host's
+# node_modules *over* the one the deps stage just installed — and a Windows or
+# macOS install of @next/swc or esbuild is a native binary that cannot run in
+# an Alpine container. The build then fails for a reason that reads nothing
+# like "your build context was wrong".
+#
+# It is also the difference between sending a few megabytes to the daemon and
+# sending a few hundred.
+
+# Installed inside the image by the deps stage, from package-lock.json.
+node_modules
+.pnpm-store
+
+# Build output. Produced in the image; a stale host copy would be baked in.
+.next
+out
+*.tsbuildinfo
+
+# Local-only configuration. The runtime reads MRIP_API_URL from the
+# environment, so a developer's .env.local must not travel into an image.
+.env
+.env.*
+!.env.example
+
+# Version control and editor state.
+.git
+.gitignore
+.vscode
+.idea
+
+# Nothing the server loads at runtime.
+README.md
+AGENTS.md
+CLAUDE.md
+Dockerfile
+.dockerignore
+coverage
+.eslintcache
+npm-debug.log*
+yarn-error.log*

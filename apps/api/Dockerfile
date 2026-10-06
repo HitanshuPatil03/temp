@@ -52,7 +52,18 @@ RUN apt-get update \
 COPY --from=build /opt/venv /opt/venv
 
 WORKDIR /app
-COPY --from=build /build/mrip ./mrip
+# Deliberately *not* copying `mrip` here. `pip install .` above already put the
+# package in the virtualenv, and a second copy at /app/mrip meant the image
+# carried two. Which one ran depended on how the process was started: uvicorn
+# puts the working directory on sys.path and imported /app/mrip, while the
+# `mrip-worker` and `mrip-scheduler` console scripts do not and imported the
+# installed one. Identical code, different `__file__` — enough to make any
+# path derived from the module resolve differently between the API and the
+# worker, which is exactly how the worker came to crash-loop against a healthy
+# API. One copy, so the question cannot be asked.
+#
+# The migration history is not part of the package, so it does travel here,
+# and the working directory above is what locates it.
 COPY --from=build /build/migrations ./migrations
 COPY --from=build /build/alembic.ini ./
 

@@ -21,8 +21,34 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 __all__ = ["REPO_ROOT", "Profile", "Settings", "get_settings"]
 
-#: Repository root: apps/api/mrip/config.py -> up three levels is apps/api, four is root.
-REPO_ROOT = Path(__file__).resolve().parents[3]
+
+def _repo_root() -> Path:
+    """The repository root in a source checkout; the install prefix in an image.
+
+    ``apps/api/mrip/config.py`` is four levels below the root, and counting
+    those levels is what this used to do. That is true of a checkout and false
+    of every installed copy: in the container the package sits at
+    ``/app/mrip``, which has no fourth parent, so counting raised ``IndexError``
+    at *import* time — before any setting could be read, and so for every
+    process in the image, including the migration job. The whole composed
+    deployment failed on it.
+
+    Searching for a marker instead is correct in both places. Only the
+    ``data_dir`` default is derived from this, and a container sets
+    ``MRIP_DATA_DIR`` explicitly, so the fallback has to be unsurprising rather
+    than meaningful.
+    """
+    here = Path(__file__).resolve()
+    for candidate in here.parents:
+        if (candidate / "apps" / "api" / "pyproject.toml").is_file():
+            return candidate
+    # Installed, not checked out: `/app/mrip/config.py` -> `/app`.
+    return here.parents[1]
+
+
+#: Repository root in a checkout; the directory the package was installed into
+#: otherwise. See :func:`_repo_root` for why this is not a parent count.
+REPO_ROOT = _repo_root()
 
 #: The development database password. Named as a constant so the production check
 #: can reject it by identity rather than by a fuzzy "looks weak" heuristic.

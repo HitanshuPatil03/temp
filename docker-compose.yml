@@ -23,6 +23,17 @@ x-api-image: &api-image
     MRIP_DATA_DIR: /var/lib/mrip/data
     MRIP_BLOB_DIR: /var/lib/mrip/blobs
     MRIP_LOG_FORMAT: json
+    # The model runtime runs on the *host*, not in this network. The setting's
+    # default is 127.0.0.1, which inside a container is the container — so
+    # without this override every narrative answer in a composed deployment
+    # fails with "model unavailable" while Ollama is running perfectly well a
+    # few hundred milliseconds away. Figures are unaffected either way: the
+    # exact-figure path reaches no model at all.
+    MRIP_LLM_BASE_URL: ${MRIP_LLM_BASE_URL:-http://host.docker.internal:11434}
+  # Docker Desktop resolves host.docker.internal already; Linux does not, and
+  # this is what makes the name mean the same thing on both.
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
   volumes:
     - mrip-data:/var/lib/mrip
   depends_on:

@@ -194,6 +194,69 @@ def test_pipeline_modules_import_cleanly_without_the_optional_extras(module):
     __import__(module)
 
 
+def test_no_module_locates_itself_by_counting_parent_directories():
+    """A path that is only correct in a source checkout is a deployment bug.
+
+    ``Path(__file__).resolve().parents[3]`` is a statement about where this file
+    sits in a tree, and it stops being true the moment the package is installed
+    somewhere else. Two modules did it and both broke the container image, in
+    ways that looked nothing like the cause:
+
+    * ``config.py`` counted four levels to the repository root. In the image the
+      package is at ``/app/mrip``, which has no fourth parent, so *every*
+      process raised ``IndexError`` while importing settings — including the
+      migration job, so the whole stack never started.
+    * ``schema_version.py`` counted three levels to find ``migrations/``. The API
+      is launched as ``uvicorn mrip.main:app``, which puts the working directory
+      on ``sys.path``; the worker and scheduler are console scripts, which do
+      not. They therefore imported a different copy of the same code, found no
+      migration history above it, and crash-looped — against an API reporting
+      healthy. A deployment that answers every read and ingests nothing.
+
+    Neither was visible to a suite that imports the package from the checkout it
+    lives in, which is why this is a source check rather than a behavioural one.
+    Locate things by looking for a marker file instead; the two functions those
+    modules now use are the pattern.
+
+    Depth 0 and 1 are allowed. ``parents[0]`` is the module's own directory and
+    ``parents[1]`` its package's parent — the import system guarantees both,
+    whatever tree the package was installed into. Depth 2 and beyond is where a
+    claim about *this repository's* shape begins, and where both bugs lived.
+    """
+    import ast
+
+    #: The first depth that reaches past the module's own package.
+    tree_assumption_depth = 2
+
+    offenders: list[str] = []
+    for file in sorted(PACKAGE.rglob("*.py")):
+        tree = ast.parse(file.read_text(encoding="utf-8"), filename=str(file))
+        for node in ast.walk(tree):
+            # Match `<anything>.parents[<int>]`, which is the subscript that
+            # makes the assumption. `.parent` and iterating `.parents` are both
+            # fine and common, so neither is matched here.
+            if not isinstance(node, ast.Subscript):
+                continue
+            target = node.value
+            if not (isinstance(target, ast.Attribute) and target.attr == "parents"):
+                continue
+            index = node.slice
+            if not (isinstance(index, ast.Constant) and isinstance(index.value, int)):
+                continue
+            if index.value < tree_assumption_depth:
+                continue
+            offenders.append(f"{file.relative_to(API_ROOT)}:{node.lineno}")
+
+    assert offenders == [], (
+        "These modules locate a path by counting parent directories:\n  "
+        + "\n  ".join(offenders)
+        + "\nThat is true in a checkout and false once the package is installed, "
+        "so it breaks the container image and nothing else. Search upward for a "
+        "marker file — see mrip/config.py::_repo_root and "
+        "mrip/db/schema_version.py::_alembic_root."
+    )
+
+
 def test_no_application_code_can_disable_the_audit_trigger():
     """ARCHITECTURE §9 — the audit log is append-only, with no exceptions.
 
