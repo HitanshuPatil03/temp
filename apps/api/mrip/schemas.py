@@ -144,7 +144,26 @@ class DocumentState(StrEnum):
 
 
 class Sensitivity(StrEnum):
-    """Need-to-know label. Gates access, and which processing is permitted."""
+    """Handling caveat recorded on a document, per the classification on the source.
+
+    **This label is recorded and displayed, but it does not gate access yet.**
+    Nothing reads it: not the scope clause, not a repository, not the query path.
+    Every read is constrained by the caller's entity scope alone, so a document
+    marked ``restricted`` is served to anyone whose grant covers its publisher.
+
+    Saying so plainly is the point. The field previously claimed it "gates
+    access, and which processing is permitted", and the upload form offered it as
+    a dropdown, so an officer could mark a draft as restricted believing that
+    did something — a false assurance about the one property a classification
+    exists to provide.
+
+    Enforcing it is a policy decision, not a bug fix: whether ``restricted``
+    means admin-only, the uploader's entity, or a separate need-to-know grant is
+    something CMPDI has to specify, and inventing an answer would be worse than
+    having none. Tracked in ``docs/ROADMAP.md``. Until then the value is
+    provenance — what the source document said about its own handling — and
+    nothing should be built on the assumption that it is enforced.
+    """
 
     PUBLIC = "public"
     INTERNAL = "internal"

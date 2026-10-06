@@ -76,6 +76,42 @@ def test_a_scope_does_not_leak_across_entities():
     assert Scope.of(SCOPE_ALL).is_unrestricted is True
 
 
+def test_sensitivity_is_recorded_but_does_not_restrict_reading(store, make_document):
+    """Pin the gap, so it cannot be forgotten *or* quietly closed.
+
+    ``Sensitivity`` is displayed to an officer and settable on upload, and its
+    docstring used to claim it "gates access, and which processing is permitted".
+    Nothing reads it — this asserts that, so the next person to assume otherwise
+    gets a failing test instead of a false assurance.
+
+    Written as an equality rather than "restricted is readable" on purpose: when
+    enforcement lands, this test *should* fail, and whoever implements it has to
+    come here and describe the rule. A test that merely tolerated both behaviours
+    would let the gap persist indefinitely.
+    """
+    from mrip.schemas import Sensitivity
+
+    # Published *by* SECL, so it is squarely inside SECL's own scope. That is
+    # the strongest form of the claim: not merely that some other entity can see
+    # it, but that the label changes nothing for a reader who is entitled to the
+    # document anyway.
+    store.register_document(
+        make_document(
+            "restricted-draft.pdf",
+            sensitivity=Sensitivity.RESTRICTED,
+            publisher_entity_id="secl",
+        )
+    )
+
+    visible = store.list_documents(SECL)
+
+    assert [document.filename for document in visible] == ["restricted-draft.pdf"], (
+        "If this now fails because sensitivity *does* gate access, that is the "
+        "intended trigger: update this test to state the rule and remove the "
+        "caveat from Sensitivity's docstring."
+    )
+
+
 # --------------------------------------------------------------------- enforcement
 
 

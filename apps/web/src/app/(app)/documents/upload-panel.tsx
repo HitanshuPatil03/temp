@@ -148,7 +148,16 @@ export function UploadPanel() {
             <Field label="Fiscal year" hint="Only if the document states one">
               <Input name="fiscal_year" placeholder="FY2024-25" />
             </Field>
-            <Field label="Sensitivity" hint="Defaults to internal">
+            {/* The hint has to say this is not enforced. Offering a
+                "Restricted" option beside a form silently implies the platform
+                will restrict it — and it will not: reads are constrained by the
+                caller's entity scope alone. An officer who needs a document kept
+                to one subsidiary is currently served by setting the publisher
+                entity, which *is* enforced. */}
+            <Field
+              label="Sensitivity"
+              hint="Recorded as provenance; does not restrict access yet"
+            >
               <Select name="sensitivity" defaultValue="internal">
                 <option value="public">Public</option>
                 <option value="internal">Internal</option>
