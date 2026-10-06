@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING
 
 from mrip.llm import LLMClient, LLMUnavailableError
 from mrip.query.narrative import verify_numbers
+from mrip.reports.grouping import format_indian
 
 if TYPE_CHECKING:
     from mrip.reports.template import ReportTemplate
@@ -79,7 +80,7 @@ def _prompt(prompt: str, figures: list[PinnedFigure]) -> str:
     if figures:
         lines.extend(
             f"- {figure.label}: {figure.raw_value:g} {figure.raw_unit} "
-            f"({figure.value:,.0f} {figure.unit}) [{figure.locator}]"
+            f"({format_indian(figure.value)} {figure.unit}) [{figure.locator}]"
             for figure in figures
         )
     else:

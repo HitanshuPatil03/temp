@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from mrip.reports.grouping import format_indian
+
 if TYPE_CHECKING:
     from mrip.reports.template import ReportTemplate
     from mrip.schemas import PinnedFigure, ReportManifest
@@ -34,7 +36,8 @@ class ReportIncompleteError(RuntimeError):
 
 def _format_value(figure: PinnedFigure) -> str:
     return (
-        f"{figure.value:,.0f} {figure.unit} (raw {figure.raw_value:g} {figure.raw_unit})"
+        f"{format_indian(figure.value)} {figure.unit} "
+        f"(raw {figure.raw_value:g} {figure.raw_unit})"
     )
 
 

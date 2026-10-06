@@ -80,7 +80,10 @@ def test_render_markdown_shows_figures_sources_and_disabled_note(
     assert (
         "# Production Summary — South Eastern Coalfields Limited, FY2024-25" in markdown
     )
-    assert "193,000,000 t" in markdown  # the pinned value, formatted
+    # Indian grouping, matching what the officer verified in the browser —
+    # see mrip/reports/grouping.py. Western grouping here meant the figure in
+    # the signed .docx was notated differently from the one on screen.
+    assert "19,30,00,000 t" in markdown  # the pinned value, formatted
     assert "doc:" in markdown  # a locator is cited
     # No narratives passed and the model is not called here: the section says so.
     assert "the local model is disabled" in markdown

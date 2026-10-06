@@ -23,6 +23,7 @@ from __future__ import annotations
 import io
 from typing import TYPE_CHECKING, Any
 
+from mrip.reports.grouping import format_indian
 from mrip.reports.render import ReportIncompleteError
 
 if TYPE_CHECKING:
@@ -66,7 +67,7 @@ def _guard(manifest: ReportManifest) -> None:
 
 
 def _value(figure: PinnedFigure) -> str:
-    return f"{figure.value:,.0f} {figure.unit}"
+    return f"{format_indian(figure.value)} {figure.unit}"
 
 
 def _raw(figure: PinnedFigure) -> str:
