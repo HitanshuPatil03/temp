@@ -358,13 +358,48 @@ seed() {
     muted "Four documents through the real pipeline — intake, digitize, extract,"
     muted "normalize, validate, index. Idempotent: a second run changes nothing."
     echo
-    if ! $COMPOSE exec -T api mrip-admin seed-demo; then
-        die "Seeding failed." \
-            "The stack is up, so this is not a startup problem — sign in and work with" \
-            "an empty corpus, or read the error above. To retry just this step:" \
-            "" \
-            "    $COMPOSE exec api mrip-admin seed-demo"
+    if $COMPOSE exec -T api mrip-admin seed-demo; then
+        return
     fi
+    # Not fatal. The stack is up, the accounts may well already exist, and
+    # refusing to print the logins because the corpus could not be built helps
+    # nobody — it turns a partial success into an apparent total failure. Say
+    # what happened, let the evidence check below explain it, and hand over the
+    # system that is running.
+    SEED_FAILED=1
+    printf '\n'
+    warn "The demonstration corpus could not be built. The stack is still up."
+    muted "Sign in below and work with whatever the corpus already holds, or start"
+    muted "from a clean database with:  ./run.sh reset && ./run.sh"
+}
+
+# The database and the blob store are two things, and nothing in PostgreSQL
+# knows whether a document's bytes are still on disk. They can therefore drift
+# — most often by seeding from the host into a containerised database, or by
+# restoring one without the other. A stack that comes up and serves figures
+# whose citations are dead ends should say so while someone is still looking at
+# the terminal, not when a reviewer clicks through.
+check_evidence() {
+    if $COMPOSE exec -T api mrip-admin verify >/dev/null 2>&1; then
+        return
+    fi
+    printf '\n'
+    warn "The evidence check found something. Figures will answer; citations may not open."
+    # `verify` exits non-zero precisely because it found something, which is
+    # the branch we are in. Without swallowing it, `set -e` plus `pipefail`
+    # ends the script here — one step before it prints the logins, which is the
+    # whole reason anyone ran it.
+    $COMPOSE exec -T api mrip-admin verify 2>/dev/null \
+        | grep -vE '^\{|^\s*$' | sed 's/^/    /' | head -14 || true
+    printf '\n'
+    # Seeding already offered this advice if it was the thing that tripped.
+    # Saying it twice in one screen reads as two problems.
+    [ -n "${SEED_FAILED:-}" ] && return 0
+    muted "Most often this means the database and the blob store were populated"
+    muted "separately — seeded from the host into the container's database, say."
+    muted "For a demonstration corpus the clean fix is to start over:"
+    muted ""
+    muted "    ./run.sh reset && ./run.sh"
 }
 
 credentials() {
@@ -414,6 +449,7 @@ cmd_up() {
     compose_up
     wait_for_api
     [ -n "${NO_SEED:-}" ] || seed
+    check_evidence
     credentials
 }
 

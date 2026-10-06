@@ -64,8 +64,14 @@ models/
 .env.local
 .env.*.local
 
+# The ports ./run.sh settled on for this machine. Local by nature: the whole
+# reason it exists is that one host's free ports are not another's.
+.mrip-run.env
+
 # CI artifacts
 licences-python.md
+login.json
+facts.json
 
 # Working research and scratch material kept beside the repo rather than in it:
 # these are inputs to the design, not source, and some carry document metadata
@@ -100,3 +106,7 @@ desktop.ini
 .idea/
 .vscode/*
 !.vscode/extensions.json
+
+# Local database dumps taken before a destructive reset. Never committed:
+# a dump of a real corpus is the corpus.
+.backup/
