@@ -126,7 +126,7 @@ class ReportRepository:
         Raises ``LookupError`` when the report does not exist or is out of scope;
         the caller turns that into the 404 that does not confirm its existence.
         """
-        row = self._row(report_id, scope)
+        row = self._row(report_id, scope, for_update=True)
         if row is None:
             raise LookupError(report_id)
 
@@ -220,17 +220,34 @@ class ReportRepository:
 
     # ----------------------------------------------------------------- internals
 
-    def _row(self, report_id: str, scope: Scope) -> dict[str, Any] | None:
-        row = (
-            self._conn.execute(
-                sa.select(reports).where(
-                    reports.c.report_id == report_id,
-                    scope.clause(reports.c.entity_id),
-                )
-            )
-            .mappings()
-            .first()
+    def _row(
+        self, report_id: str, scope: Scope, *, for_update: bool = False
+    ) -> dict[str, Any] | None:
+        """Fetch one report, optionally locking it for the rest of the transaction.
+
+        ``for_update`` is what makes :meth:`transition` safe against a second
+        approver acting on the same report. Without it the legality check reads a
+        state that the ``UPDATE`` never re-checks, so two requests that were each
+        legal against the state they saw can both commit: one publishes while the
+        other sends the report back, and a *published* report ends up in review —
+        the one move ``LEGAL_TRANSITIONS`` exists to forbid.
+
+        With the lock the second transaction blocks, and PostgreSQL re-evaluates
+        the row after acquiring it, so the check runs against the state that
+        actually committed and refuses on its own. That is why this needs no new
+        error type: the loser gets the same ``IllegalReportTransitionError`` a
+        sequential caller would.
+
+        Plain reads must not take it — a dashboard listing reports has no business
+        blocking a sign-off.
+        """
+        query = sa.select(reports).where(
+            reports.c.report_id == report_id,
+            scope.clause(reports.c.entity_id),
         )
+        if for_update:
+            query = query.with_for_update()
+        row = self._conn.execute(query).mappings().first()
         return dict(row) if row else None
 
     def _hydrate(self, row: dict[str, Any]) -> ReportManifest:

@@ -280,6 +280,17 @@ class ConflictRepository:
                     conflicts.c.resolved_fact_id.is_(None),
                     scope.clause(conflicts.c.entity_id),
                 )
+                # Claim the conflict for this transaction. The `resolved_fact_id
+                # IS NULL` test above is what decides whether this adjudication is
+                # allowed, and the UPDATE below does not repeat it — so without the
+                # lock two reviewers who pick *different* winning facts both pass
+                # the check and both commit. The second overwrites the first, and
+                # the first reviewer is told their decision stood when it did not.
+                #
+                # `of=conflicts` locks the conflict row only. The member facts are
+                # read to validate the nomination, not claimed, and locking them
+                # would block the unrelated conflicts they also belong to.
+                .with_for_update(of=conflicts)
             )
             .scalars()
             .all()
