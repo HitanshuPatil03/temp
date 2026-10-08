@@ -194,6 +194,94 @@ def test_pipeline_modules_import_cleanly_without_the_optional_extras(module):
     __import__(module)
 
 
+#: Domain exceptions that no HTTP route needs to catch, each with the reason it
+#: cannot reach one. Everything else must be caught somewhere under ``mrip/api/``,
+#: because a domain exception that escapes becomes a 500 — and "Internal Server
+#: Error" tells an officer nothing about whether to retry, fix their input, or
+#: call someone.
+#:
+#: The list is short on purpose. Adding to it is a claim that a failure is
+#: unreachable from a request, and that claim goes stale: ``BlobNotFoundError`` is
+#: here only because nothing serves document bytes yet, and roadmap 8.2 will
+#: change that.
+UNREACHABLE_FROM_HTTP: dict[str, str] = {
+    "BlobNotFoundError": (
+        "raised on a blob read, and no route reads blobs — evidence shown to a "
+        "reader comes from the database. When 8.2 adds signed document URLs, that "
+        "route must catch this"
+    ),
+    "ContentHashMismatchError": (
+        "raised by the blob store only when the caller supplies an expected hash, "
+        "which the upload path does not"
+    ),
+    "TokenError": "base class; both subclasses are caught in deps.py",
+    "PermanentJobError": "worker-side dead-lettering, never raised in a request",
+    "LeaseLostError": "worker-side lease expiry, never raised in a request",
+    "ChallengedError": "corpus harvester, reachable only from mrip-admin",
+    "_RestartWithoutRangeError": "corpus harvester internal control flow",
+}
+
+
+def _exception_classes() -> dict[str, str]:
+    """Every ``*Error`` / ``*Exception`` class under ``mrip/``, and where it lives."""
+    found: dict[str, str] = {}
+    for file in sorted(PACKAGE.rglob("*.py")):
+        tree = ast.parse(file.read_text(encoding="utf-8"), filename=str(file))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef) and node.name.endswith(
+                ("Error", "Exception")
+            ):
+                found[node.name] = str(file.relative_to(API_ROOT))
+    return found
+
+
+def test_every_domain_exception_a_request_can_raise_is_mapped_to_a_status():
+    """A domain exception that escapes a route becomes a 500.
+
+    That is a product defect, not a tidiness one: this platform's refusals are
+    the part an officer has to act on. "This period is not one I recognise" and
+    "that report was already approved" are answers. "Internal Server Error" is
+    the same response the system gives when it is genuinely broken, so it teaches
+    people either to retry blindly or to stop reading the error text.
+
+    Derived from the source rather than listed, so a *new* exception fails this
+    test until somebody decides whether a route has to handle it. The matching is
+    deliberately crude — the class name appearing in an ``except`` clause anywhere
+    under ``mrip/api/`` — because the alternative is modelling which route can
+    raise what, and a test that models the call graph is a test that drifts from
+    it.
+    """
+    import re
+
+    defined = _exception_classes()
+    routes = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in sorted((PACKAGE / "api").glob("*.py"))
+    )
+    unhandled = {
+        name: where
+        for name, where in defined.items()
+        if name not in UNREACHABLE_FROM_HTTP
+        and not re.search(rf"except[^\n]*\b{name}\b", routes)
+    }
+
+    assert defined, "no exception classes found, so this test is looking at nothing"
+    assert unhandled == {}, (
+        "These domain exceptions are neither caught under mrip/api/ nor declared "
+        "unreachable from a request:\n  "
+        + "\n  ".join(f"{name}  ({where})" for name, where in sorted(unhandled.items()))
+        + "\nCatch it in the route and map it to a status an officer can act on, or "
+        "add it to UNREACHABLE_FROM_HTTP with the reason it cannot reach one."
+    )
+
+
+def test_the_unreachable_list_does_not_outlive_the_exceptions_it_excuses():
+    """An excuse for a class that no longer exists is an excuse nobody re-read."""
+    stale = sorted(set(UNREACHABLE_FROM_HTTP) - set(_exception_classes()))
+
+    assert stale == [], f"UNREACHABLE_FROM_HTTP names exceptions that are gone: {stale}"
+
+
 def test_no_module_locates_itself_by_counting_parent_directories():
     """A path that is only correct in a source checkout is a deployment bug.
 

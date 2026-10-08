@@ -10,11 +10,22 @@ bytes of every source document live on a filesystem (or, later, an object store)
 addressed by their own SHA-256, and nothing in PostgreSQL knows whether they are
 still there. A restore that loads yesterday's database beside today's blob
 directory, a volume mounted read-only during a migration, an operator reclaiming
-disk — each leaves a corpus that answers every query correctly right up until
-somebody clicks through to the source, during a Ministry deadline.
+disk — each leaves a corpus that still looks entirely healthy.
 
-So this module exists to ask the question out loud, cheaply enough to run from
-cron and thoroughly enough to trust a restore:
+That last part is the danger, and it is worth being precise about rather than
+dramatic. Nothing in the product serves document bytes on a request today
+(signed short-lived URLs are roadmap 8.2), and the evidence a reader sees — the
+snippet, the page, the table and cell — is stored in the database beside the
+fact. So losing the blobs breaks **no screen**. Every figure still answers, every
+citation still renders its quoted text, and the corpus reports itself fine.
+
+What is lost is the ability to *substantiate* any of it: the page can never be
+re-read by a better extractor, the stored snippet can never be checked against
+the document it claims to quote, the ``--deep`` tamper check has nothing to hash,
+and an auditor who asks to see the source cannot be given it. A corpus in that
+state has stopped being evidence and become assertion — while displaying no
+symptom at all. Which is exactly why it has to be asked about out loud, cheaply
+enough to run from cron and thoroughly enough to trust a restore:
 
 **Presence** — every registered document's blob is where the registry says.
 A stat per document; seconds for the whole corpus.
@@ -241,9 +252,13 @@ def _check_blob_presence(
                 check="MISSING EVIDENCE",
                 detail=(
                     f"{len(missing):,} of {report.documents_checked:,} documents are "
-                    "registered but their bytes are not in the blob store. Every "
-                    "figure extracted from them still answers queries, and every "
-                    "citation on those figures is now a dead end."
+                    "registered but their bytes are not in the blob store. No screen "
+                    "will show this: the figures still answer and their citations "
+                    "still render, because the snippet and locator are in the "
+                    "database. What is gone is the ability to substantiate them — "
+                    "nothing can be re-extracted, no snippet can be checked against "
+                    "the page it quotes, and an auditor asking for the source cannot "
+                    "be given it."
                 ),
                 remedy=(
                     "Restore the blob directory from the backup taken with this "
@@ -263,8 +278,9 @@ def _check_blob_presence(
                 detail=(
                     f"{len(corrupt):,} blobs no longer hash to their own name. The "
                     "bytes on disk are not the bytes that were ingested, so the "
-                    "document a citation opens is not the document the figure came "
-                    "from. This is bit rot, a bad restore, or tampering."
+                    "stored snippets and locators now describe a document this "
+                    "deployment no longer holds. This is bit rot, a bad restore, or "
+                    "tampering."
                 ),
                 remedy=(
                     "Do not serve these. Restore the blob directory from backup and "

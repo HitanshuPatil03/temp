@@ -75,10 +75,12 @@ def test_missing_bytes_are_reported_with_the_document_that_lost_them(
 ) -> None:
     """The failure with no foreign key behind it.
 
-    A document row survives a restore; its bytes may not. Every figure extracted
-    from it still answers queries perfectly, and every citation on those figures is
-    a dead end — which is discovered by whoever clicks through, usually under a
-    deadline.
+    A document row survives a restore; its bytes may not — and the product shows
+    no symptom, because nothing serves document bytes on a request and the snippet
+    and locator a reader sees live in the database beside the fact. The figures
+    answer, the citations render, and the corpus cannot substantiate a single one
+    of them: nothing re-extracts, no snippet can be checked against the page it
+    quotes, and an auditor asking for the source cannot be given it.
     """
     blobs = get_blob_store()
     blobs.path_for(ingested.content_hash).unlink()

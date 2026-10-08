@@ -73,7 +73,7 @@ screenshot**.
 | Test suite | 5,100 | ✅ **515 passing in ~46 s** |
 | Frontend (light theme, 9 surfaces, sign-in, upload, session proxy) | 5,300 | ✅ build green |
 
-**661 tests green** against PostgreSQL 17.11 + pgvector 0.8.6. The normalizers and
+**663 tests green** against PostgreSQL 17.11 + pgvector 0.8.6. The normalizers and
 schemas are storage-independent and carried forward untouched; `db.py` (664 lines of
 DuckDB) was the one component the PostgreSQL decision rewrote, as ARCHITECTURE §12
 predicted.
@@ -108,7 +108,7 @@ migrations exist; retrofitting any of the three is a rewrite.
 | 0.13 | Frontend shell: light-theme tokens, primitives, API client, all five surfaces wired | ✅ done — dashboard, documents, facts, conflicts, normalizer |
 | 0.14 | **Frontend session handling** | ✅ done — the token lives in an httpOnly cookie and `src/proxy.ts` turns it into a bearer header server-side, so no script in the browser can read a credential; sign-in is a Server Function, and a temporary password can reach only the change-password page |
 
-**Status:** 661 tests green in ~70 s against PostgreSQL 17.11 + pgvector 0.8.6 ·
+**Status:** 663 tests green in ~70 s against PostgreSQL 17.11 + pgvector 0.8.6 ·
 ruff clean · mypy strict clean on 48 modules · zero schema drift ·
 `mrip-scheduler` elects itself and enqueues, `mrip-worker` drains ·
 sign-in verified in a browser through Next → proxy → FastAPI → Postgres, with an
@@ -302,7 +302,7 @@ credentials exist.
 | 8.2 | Security pass: dependency audit, secret scanning, SQL/path-traversal review, rate limiting, signed short-lived document URLs |
 | 8.3 | Audit log export + retention compliance |
 | 8.4 | Observability: OpenTelemetry traces, Prometheus metrics, dashboards, alert rules — all local |
-| 8.5 | **Backup, restore and a DR drill** — restore into a clean host and verify, not just `pg_dump` in cron | 🔄 the *verify* half exists: `mrip-admin verify` checks that every registered document's bytes are in the blob store, that `--deep` re-hashes each one against its own name, that every figure a stored report pinned still resolves, and that the schema is the revision the code expects. That link has no foreign key behind it — the blob store is outside the database — so a database and a blob directory restored to different points produce a corpus that answers every query correctly until someone clicks through to a source. Exits non-zero on anything that makes an answer wrong; orphan blobs are a *warning*, because a cron check that fails on residue is one an operator silences. The backup and drill halves remain |
+| 8.5 | **Backup, restore and a DR drill** — restore into a clean host and verify, not just `pg_dump` in cron | 🔄 the *verify* half exists: `mrip-admin verify` checks that every registered document's bytes are in the blob store, that `--deep` re-hashes each one against its own name, that every figure a stored report pinned still resolves, and that the schema is the revision the code expects. That link has no foreign key behind it — the blob store is outside the database — so a database and a blob directory restored to different points produce a corpus with **no visible symptom at all**: nothing serves document bytes on a request yet (8.2 below), and the snippet and locator a reader sees are stored beside the fact, so every figure still answers and every citation still renders. What is gone is the ability to substantiate any of it — nothing can be re-extracted, no snippet can be checked against the page it quotes, and an auditor asking for the source cannot be given it. A corpus in that state has stopped being evidence and become assertion. Exits non-zero on anything that makes an answer wrong; orphan blobs are a *warning*, because a cron check that fails on residue is one an operator silences. The backup and drill halves remain |
 | 8.6 | Load + soak test with p95 gates in CI |
 | 8.7 | **Offline install bundle** — image, migrations, vendored wheels, model weights with checksums, upgrade and rollback runbook |
 | 8.8 | Accessibility audit: WCAG 2.2 AA, keyboard-complete, colour-vision validated |
