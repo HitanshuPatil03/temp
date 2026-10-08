@@ -242,6 +242,9 @@ WRITE_METHODS: dict[str, str] = {
     "FactRepository.delete_for_document": "write, a stage replacing its own output",
     "FactRepository.flag_for_review": "write, validation routing",
     "FactRepository.flag_low_confidence_for_document": "write, per-document review sweep",
+    "FactRepository.promote_high_confidence_for_document": (
+        "write, per-document acceptance sweep — the other half of the review sweep"
+    ),
     "EvidenceRepository.insert": "write",
     "EvidenceRepository.replace_stage": "write, idempotent stage rewrite",
     "FactRepository.insert": "write",

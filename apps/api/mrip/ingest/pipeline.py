@@ -467,18 +467,30 @@ def validate_document(ctx: JobContext) -> None:
     Conflict detection runs **corpus-wide within this document's entities**, not
     within the document: the disagreement worth catching is between a figure here
     and the same figure in last quarter's filing from a different subsidiary.
+
+    Then accept what survived. The order is the whole design: rules flag first,
+    the radar marks disagreements second, and only what is still ``extracted``
+    after both is promoted. Promotion cannot therefore overturn a flag — and
+    until it existed, nothing could leave ``extracted`` at all, so a clean
+    document's figures were never reportable.
     """
     from mrip.validate.rules import run_rules
 
     document = _load(ctx)
     findings = run_rules(ctx.store, document)
     conflicts = ctx.store.detect_conflicts(PIPELINE_SCOPE)
+    accepted = ctx.store.facts.promote_high_confidence_for_document(
+        document.document_id,
+        document.version,
+        ctx.store.settings.review_confidence_threshold,
+    )
 
     logger.info(
         "document validated",
         document_id=document.document_id,
         findings=len(findings),
         open_conflicts=len(conflicts),
+        accepted=accepted,
     )
     _advance(
         ctx,
@@ -490,6 +502,7 @@ def validate_document(ctx: JobContext) -> None:
                 "total": len(findings),
                 "findings": [finding.as_dict() for finding in findings[:20]],
                 "open_conflicts": len(conflicts),
+                "accepted": accepted,
             }
         },
     )

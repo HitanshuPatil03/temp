@@ -255,6 +255,61 @@ class FactRepository:
         )
         return result.rowcount or 0
 
+    def promote_high_confidence_for_document(
+        self, document_id: str, document_version: int, threshold: float
+    ) -> int:
+        """The other half of the sweep: accept what passed every check.
+
+        Demotion was implemented three times over — at creation for a fuzzy
+        entity or an ambiguous unit, per document at the normalize stage, and
+        corpus-wide from the scheduler — and nothing ever promoted. So a fact
+        that passed every automated check stayed ``extracted`` for good, and
+        ``extracted`` is not a state anything uses: ``FactStatus.is_trustworthy``
+        admits only ``validated``, so the figure could not be pinned in a report,
+        could not appear in a comparison series, and was not in the review queue
+        either, because that queue is ``needs_review``.
+
+        The effect was backwards. A clean, unambiguous government statement
+        produced figures that vanished — the generator refused with
+        ``no_validated_fact`` while the review queue showed nothing to act on —
+        and the only way a fact ever reached ``validated`` was by *disagreeing*
+        with another one and having a reviewer pick it. The better the
+        extraction, the more completely the number disappeared.
+
+        ``.env.example`` has always described the intended rule: facts below the
+        threshold "go to the review queue instead of being treated as validated".
+        This is the "treated as validated" half.
+
+        Three conditions, each of which has to hold on its own:
+
+        ``status == extracted``
+            A human's decision is never overwritten, and ``conflicted`` is a
+            stronger flag that outranks confidence.
+        ``limiting confidence >= threshold``
+            Re-tested here rather than assumed from the normalize stage, so the
+            promotion is safe whatever order the stages ran in — and ``least()``
+            returns NULL when no stage reported a confidence, which fails this
+            comparison and correctly leaves such a fact alone.
+        ``not unit_ambiguous``
+            ``MT`` is million tonnes in CIL reporting and a metric tonne
+            everywhere else, a factor of a million. Extraction already routes an
+            ambiguous unit to review, so this is belt and braces — but it is the
+            one error that would put a figure a million times too large into a
+            Ministry report, so it is worth asserting twice.
+        """
+        result = self._conn.execute(
+            sa.update(facts)
+            .where(
+                facts.c.document_id == document_id,
+                facts.c.document_version == document_version,
+                facts.c.status == FactStatus.EXTRACTED.value,
+                threshold <= LIMITING_CONFIDENCE,
+                facts.c.unit_ambiguous.is_(False),
+            )
+            .values(status=FactStatus.VALIDATED.value)
+        )
+        return result.rowcount or 0
+
     # ---------------------------------------------------------------- reads
 
     def get(self, fact_id: str, scope: Scope) -> Fact | None:
