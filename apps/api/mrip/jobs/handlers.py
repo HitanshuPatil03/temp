@@ -23,6 +23,7 @@ from mrip.jobs.queue import JobQueue
 from mrip.jobs.registry import JobContext, handler
 
 __all__ = [
+    "accept_high_confidence",
     "detect_conflicts",
     "flag_low_confidence",
     "prune_jobs",
@@ -30,6 +31,25 @@ __all__ = [
 ]
 
 logger = log.get_logger("mrip.jobs.maintenance")
+
+
+@handler("maintenance.accept_high_confidence")
+def accept_high_confidence(ctx: JobContext) -> None:
+    """Accept facts at or above the confidence threshold.
+
+    A separate job from its mirror image rather than one that does both halves,
+    so an operator reading the job table sees which direction ran. The kinds are
+    also the handler keys, so broadening ``flag_low_confidence`` instead would
+    have left its name describing half of what it did.
+
+    The standing sweep matters because one path puts a fact back into
+    ``extracted`` long after its document was ingested: when a disagreement
+    clears, the surviving figure is returned to the pipeline rather than
+    vouched for, and without this it would stay there unusably.
+    """
+    threshold = ctx.payload.get("threshold")
+    accepted = ctx.store.promote_high_confidence(threshold)
+    logger.info("facts accepted", accepted=accepted, threshold=threshold)
 
 
 @handler("maintenance.flag_low_confidence")

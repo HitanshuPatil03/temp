@@ -250,6 +250,9 @@ WRITE_METHODS: dict[str, str] = {
     "FactRepository.insert": "write",
     "FactRepository.set_status": "write",
     "FactRepository.flag_low_confidence": "write, corpus-wide confidence sweep",
+    "FactRepository.promote_high_confidence": (
+        "write, corpus-wide acceptance sweep — the other half of the confidence sweep"
+    ),
 }
 
 #: Reads that are deliberately unscoped, each with the reason it has to be.

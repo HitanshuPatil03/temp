@@ -221,3 +221,91 @@ def test_the_validate_stage_accepts_what_it_validated(
 
     facts = store.query_facts(SCOPE, document_id=document.document_id)
     assert [fact.status for fact in facts] == [FactStatus.VALIDATED]
+
+
+# ------------------------------------------------- the standing corpus-wide sweep
+
+
+def test_a_figure_left_behind_by_a_cleared_conflict_is_accepted_again(
+    store: Store, make_fact, make_document
+) -> None:
+    """The path the per-document sweep cannot reach.
+
+    When a disagreement clears, ``_reconcile_flags`` returns the surviving fact
+    to ``extracted`` rather than to ``validated`` — deliberately, because
+    clearing a conflict is not a vouch for the figure. Its comment says "the
+    confidence sweep decides whether it still needs review", and the sweep only
+    ever demoted, so the survivor dropped back into limbo and only a re-run of
+    its document's validate stage could get it out.
+
+    Here the rival is superseded, which is what a corrected filing does, so the
+    group stops disagreeing and the radar drops it.
+    """
+    document = make_document("cleared-conflict.pdf")
+    store.register_document(document)
+    low = _fact(make_fact, document, value=191_500_000.0)
+    high = _fact(make_fact, document, value=193_000_000.0)
+    store.insert_facts([low, high])
+
+    # Two distinct values for one entity/metric/period: a conflict.
+    assert len(store.detect_conflicts(SCOPE)) == 1
+    assert store.facts.get(high.fact_id, SCOPE).status is FactStatus.CONFLICTED  # type: ignore[union-attr]
+
+    # A corrected filing retires the rival, so the disagreement stops existing.
+    store.facts.set_status([low.fact_id], FactStatus.SUPERSEDED)
+    assert store.detect_conflicts(SCOPE) == []
+
+    survivor = store.facts.get(high.fact_id, SCOPE)
+    assert survivor is not None
+    assert survivor.status is FactStatus.EXTRACTED, (
+        "the radar is expected to hand the survivor back to the pipeline; if this "
+        "changes, the standing sweep below may no longer be the thing that rescues it"
+    )
+
+    assert store.promote_high_confidence(THRESHOLD) == 1
+
+    accepted = store.facts.get(high.fact_id, SCOPE)
+    assert accepted is not None
+    assert accepted.status is FactStatus.VALIDATED
+
+
+def test_the_corpus_sweep_respects_the_same_three_conditions(
+    store: Store, make_fact, make_document
+) -> None:
+    """One test for all three, because the corpus-wide version is the one that
+    could quietly accept something nobody looked at."""
+    document = make_document("corpus-sweep.pdf")
+    store.register_document(document)
+    clean = _fact(make_fact, document)
+    doubtful = _fact(make_fact, document, confidence=Confidence(parse=0.3))
+    ambiguous = _fact(make_fact, document, unit_ambiguous=True)
+    reviewed = _fact(make_fact, document, status=FactStatus.NEEDS_REVIEW)
+    store.insert_facts([clean, doubtful, ambiguous, reviewed])
+
+    assert store.promote_high_confidence(THRESHOLD) == 1
+
+    statuses = {
+        fact.fact_id: fact.status
+        for fact in store.query_facts(SCOPE, document_id=document.document_id)
+    }
+    assert statuses[clean.fact_id] is FactStatus.VALIDATED
+    assert statuses[doubtful.fact_id] is FactStatus.EXTRACTED
+    assert statuses[ambiguous.fact_id] is FactStatus.EXTRACTED
+    assert statuses[reviewed.fact_id] is FactStatus.NEEDS_REVIEW
+
+
+def test_the_scheduler_runs_the_acceptance_sweep() -> None:
+    """A sweep nobody schedules is the shape the original defect had."""
+    from mrip.jobs.scheduler import SCHEDULE
+
+    kinds = {task.kind for task in SCHEDULE}
+    assert "maintenance.accept_high_confidence" in kinds
+    assert "maintenance.flag_low_confidence" in kinds, "both halves, or neither works"
+
+    # Coprime intervals, so the sweeps do not pile onto the same workers.
+    intervals = sorted(
+        task.interval_seconds // 60
+        for task in SCHEDULE
+        if task.kind.startswith("maintenance.")
+    )
+    assert len(set(intervals)) == len(intervals), f"duplicate cadences: {intervals}"

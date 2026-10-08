@@ -80,6 +80,34 @@ class FactRepository:
         )
         return result.rowcount or 0
 
+    def promote_high_confidence(self, threshold: float) -> int:
+        """Accept facts at or above the confidence threshold, corpus-wide.
+
+        The standing counterpart to :meth:`flag_low_confidence`, and the reason
+        it is needed is a path the per-document sweep cannot reach: when a
+        disagreement *clears*, :meth:`ConflictRepository._reconcile_flags`
+        returns the surviving fact to ``extracted`` — deliberately, because
+        clearing a conflict is not a vouch for the figure. Its comment says "the
+        confidence sweep decides whether it still needs review", and the sweep
+        only ever demoted. So a figure whose rival had been superseded dropped
+        straight back into the limbo this pair of methods exists to drain, and
+        only a re-run of its document's validate stage could get it out.
+
+        Same three conditions as the per-document version, for the same reasons:
+        ``extracted`` only, confidence at or above the bar, and never a fact
+        whose unit was ambiguous.
+        """
+        result = self._conn.execute(
+            sa.update(facts)
+            .where(
+                facts.c.status == FactStatus.EXTRACTED.value,
+                threshold <= LIMITING_CONFIDENCE,
+                facts.c.unit_ambiguous.is_(False),
+            )
+            .values(status=FactStatus.VALIDATED.value)
+        )
+        return result.rowcount or 0
+
     def flag_for_review(self, fact_ids: list[str], *, note: str | None = None) -> int:
         """Route named facts to review, appending why.
 

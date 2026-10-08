@@ -154,6 +154,11 @@ class Store:
             self._settings.review_confidence_threshold if threshold is None else threshold
         )
 
+    def promote_high_confidence(self, threshold: float | None = None) -> int:
+        return self.facts.promote_high_confidence(
+            self._settings.review_confidence_threshold if threshold is None else threshold
+        )
+
     def entity_metric_series(
         self, metric: str, scope: Scope, *, unit: str | None = None
     ) -> list[dict[str, Any]]:

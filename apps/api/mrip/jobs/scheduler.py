@@ -73,6 +73,13 @@ SCHEDULE: tuple[PeriodicTask, ...] = (
         kind="maintenance.flag_low_confidence",
         interval_seconds=17 * 60,
     ),
+    # 19 minutes: coprime with 17 and 23 above, so the three sweeps rarely land
+    # together and contend for the same rows.
+    PeriodicTask(
+        name="accept-high-confidence",
+        kind="maintenance.accept_high_confidence",
+        interval_seconds=19 * 60,
+    ),
     PeriodicTask(
         name="detect-conflicts",
         kind="maintenance.detect_conflicts",
