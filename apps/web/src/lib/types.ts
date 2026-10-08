@@ -592,6 +592,12 @@ export interface ExtractionSummary {
   facts: number | null;
   candidates: number | null;
   tables: number | null;
+  /** Figures the validate stage accepted as usable, or null before it ran.
+   *
+   *  Separate from `facts` because they answer different questions: `facts` is
+   *  how much the reader extracted, `accepted` is how much of it a report may
+   *  pin. They differ when a figure was flagged for review or is in conflict. */
+  accepted: number | null;
   /** Refusals a reviewer can do something about. */
   needs_attention: SkipGroup[];
   /** Total rows, headers, blanks. Counted so the arithmetic adds up; separated so

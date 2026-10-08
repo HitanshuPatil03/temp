@@ -308,6 +308,42 @@ def test_the_progress_endpoint_explains_a_thin_extraction(
     # separately and must not read as a problem.
     assert [item["reason"] for item in extraction["ignored"]] == ["total_row"]
     assert extraction["ignored"][0]["examples"] == []
+    # Validation has not run on this document, and "not validated yet" is a
+    # different answer from "nothing was accepted". Only one of them is a
+    # problem, so the field is null rather than 0.
+    assert extraction["accepted"] is None
+
+
+def test_the_progress_endpoint_says_how_many_figures_are_usable(
+    client, store: Store, make_document
+) -> None:
+    """ "22 of 26 cells became figures" still leaves the officer's real question.
+
+    Extraction count and acceptance count answer different things: how much the
+    reader found, against how much a report may pin. They diverge whenever a
+    figure was flagged for review or is in conflict — and while acceptance did
+    not exist at all, the answer was always "none" with nothing saying so, which
+    is most of why that defect stayed invisible.
+    """
+    document = make_document("validated-report.pdf")
+    store.register_document(document)
+    store.documents.set_state(
+        document.document_id,
+        DocumentState.EXTRACTED,
+        progress={"extract": {"done": 6, "total": 9, "tables": 2}},
+    )
+    store.documents.set_state(
+        document.document_id,
+        DocumentState.VALIDATED,
+        progress={"validate": {"done": 0, "total": 0, "accepted": 4}},
+    )
+
+    extraction = client.get(f"/api/documents/{document.document_id}/progress").json()[
+        "extraction"
+    ]
+
+    assert extraction["facts"] == 6
+    assert extraction["accepted"] == 4
 
 
 def test_a_clean_extraction_reports_nothing_to_attend_to(

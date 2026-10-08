@@ -463,6 +463,20 @@ function IngestionPanel({ doc }: { doc: MripDocument }) {
                         ? `, across ${formatNumber(extraction.tables, 0)} tables`
                         : ""}
                       .
+                      {/* The count that answers "can I use them?". Omitted
+                          rather than shown as zero before validation has run,
+                          because "0 accepted" and "not validated yet" are
+                          different answers and only one of them is a problem. */}
+                      {extraction.accepted !== null ? (
+                        <>
+                          {" "}
+                          <span className="tnum font-medium text-ink">
+                            {formatNumber(extraction.accepted, 0)}
+                          </span>{" "}
+                          {extraction.accepted === 1 ? "is" : "are"} validated and can
+                          be pinned in a report.
+                        </>
+                      ) : null}
                     </>
                   ) : (
                     "Extraction ran."

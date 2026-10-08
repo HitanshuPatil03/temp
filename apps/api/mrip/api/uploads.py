@@ -467,10 +467,19 @@ def _extraction_summary(progress: dict[str, Any]) -> dict[str, Any] | None:
         if reason not in ACTIONABLE_SKIPS and int(count) > 0
     ]
 
+    # The validate stage's acceptance count, carried alongside the extract
+    # stage's. "22 of 26 cells became figures" says the reading went well and
+    # still leaves the question an officer actually has — can I use them? Until
+    # acceptance existed the answer was no and nothing said so, which is most of
+    # why that defect stayed invisible.
+    validate = progress.get("validate")
+    accepted = validate.get("accepted") if isinstance(validate, dict) else None
+
     return {
         "facts": extract.get("done"),
         "candidates": extract.get("total"),
         "tables": extract.get("tables"),
+        "accepted": accepted,
         # Refusals a reviewer can do something about: find the unit, resolve the
         # ambiguity, re-run against a better layout reader.
         "needs_attention": entries(actionable),
