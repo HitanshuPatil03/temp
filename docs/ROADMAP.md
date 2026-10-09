@@ -73,7 +73,7 @@ screenshot**.
 | Test suite | 5,100 | ✅ **515 passing in ~46 s** |
 | Frontend (light theme, 9 surfaces, sign-in, upload, session proxy) | 5,300 | ✅ build green |
 
-**663 tests green** against PostgreSQL 17.11 + pgvector 0.8.6. The normalizers and
+**669 tests green** against PostgreSQL 17.11 + pgvector 0.8.6. The normalizers and
 schemas are storage-independent and carried forward untouched; `db.py` (664 lines of
 DuckDB) was the one component the PostgreSQL decision rewrote, as ARCHITECTURE §12
 predicted.
@@ -108,7 +108,7 @@ migrations exist; retrofitting any of the three is a rewrite.
 | 0.13 | Frontend shell: light-theme tokens, primitives, API client, all five surfaces wired | ✅ done — dashboard, documents, facts, conflicts, normalizer |
 | 0.14 | **Frontend session handling** | ✅ done — the token lives in an httpOnly cookie and `src/proxy.ts` turns it into a bearer header server-side, so no script in the browser can read a credential; sign-in is a Server Function, and a temporary password can reach only the change-password page |
 
-**Status:** 663 tests green in ~70 s against PostgreSQL 17.11 + pgvector 0.8.6 ·
+**Status:** 669 tests green in ~70 s against PostgreSQL 17.11 + pgvector 0.8.6 ·
 ruff clean · mypy strict clean on 48 modules · zero schema drift ·
 `mrip-scheduler` elects itself and enqueues, `mrip-worker` drains ·
 sign-in verified in a browser through Next → proxy → FastAPI → Postgres, with an

@@ -31,6 +31,7 @@ if TYPE_CHECKING:
 __all__ = [
     "answer_narrative",
     "answer_narrative_stream",
+    "figures_without_prose",
     "verify_numbers",
     "verify_prose",
 ]
@@ -161,6 +162,45 @@ def _gather_evidence(
     if not passages and not facts:
         return None
     return facts, passages
+
+
+def figures_without_prose(
+    store: Store, scope: Scope, routed: RoutedQuery, fallback: QueryResponse
+) -> QueryResponse:
+    """The last rung before refusing: the figures, and why there is no prose.
+
+    A prose question degrades in four steps — generated prose, then cited
+    passages, then the figures alone, then a refusal. The third step did not
+    exist. When the model was off or too slow the prose path fell through to a
+    lexical passage search, and a corpus with matching *facts* but no matching
+    *text* produced "Nothing in your corpus matches this question" with an empty
+    fact list. The data was there; the officer was told it was not.
+
+    ``_gather_evidence`` runs the same passage search as that fallback and adds a
+    fact lookup, so it can only ever know more — which is why this reuses it
+    rather than searching again. If there are genuinely no facts either, the
+    caller's refusal was right and is returned unchanged.
+    """
+    hits = _gather_evidence(store, scope, routed)
+    facts = hits[0] if hits else []
+    if not facts:
+        return fallback
+
+    return QueryResponse(
+        question=routed.question,
+        intent=routed.intent,
+        model_used=False,
+        refusal=Refusal(
+            reason=RefusalReason.MODEL_UNAVAILABLE,
+            message=(
+                "The local model is unavailable, so this question cannot be "
+                "answered in prose. The figures it would have been written "
+                "around are below, with their sources — they come from the "
+                "deterministic path and do not need the model."
+            ),
+            facts=facts,
+        ),
+    )
 
 
 def answer_narrative(

@@ -399,7 +399,10 @@ export type RefusalReason =
   | "ambiguous_unit"
   | "open_conflict"
   | "out_of_corpus"
-  | "no_validated_fact";
+  | "no_validated_fact"
+  /** Prose was asked for and the model could not supply it. Distinct from
+   *  `out_of_corpus`: the figures were found and travel with the refusal. */
+  | "model_unavailable";
 
 export interface Passage {
   evidence_id: string;

@@ -512,6 +512,16 @@ class RefusalReason(StrEnum):
     OPEN_CONFLICT = "open_conflict"
     OUT_OF_CORPUS = "out_of_corpus"
     NO_VALIDATED_FACT = "no_validated_fact"
+    #: The question wanted prose and the model could not supply it — the runtime
+    #: is disabled, unreachable, or slower than the generation ceiling.
+    #:
+    #: Distinct from ``OUT_OF_CORPUS`` on purpose, and the distinction is the
+    #: whole point: a prose question whose figures *were* found used to fall back
+    #: to a lexical search and, finding no matching text, answer "nothing in your
+    #: corpus matches this question". That told an officer their data was absent
+    #: when it was present and the model was merely off — which is exactly the
+    #: silent degradation the README promises does not happen.
+    MODEL_UNAVAILABLE = "model_unavailable"
 
 
 class SeriesPoint(BaseModel):

@@ -19,7 +19,7 @@ from mrip.llm import LLMClient, LLMUnavailableError, client_from_settings
 from mrip.query.compare import answer_series
 from mrip.query.discovery import search_passages
 from mrip.query.exact import answer_figure
-from mrip.query.narrative import answer_narrative
+from mrip.query.narrative import answer_narrative, figures_without_prose
 from mrip.query.router import classify
 from mrip.schemas import QueryIntent, QueryResponse
 
@@ -52,9 +52,21 @@ def answer(
             try:
                 return answer_narrative(store, scope, routed, client)
             except LLMUnavailableError:
-                # The runtime is off or unreachable. Fall through to retrieval:
-                # cited passages, never an ungrounded paraphrase (§7).
+                # The runtime is off, unreachable, or slower than the generation
+                # ceiling. Fall through to retrieval: cited passages, never an
+                # ungrounded paraphrase (§7).
                 pass
 
-    # DISCOVERY, and the conservative fallback for prose intents (§13.1).
+        # A prose question degrades in steps, and each one has to be tried before
+        # the next. Cited passages come first.
+        passages = search_passages(store, scope, routed)
+        if passages.refusal is None:
+            return passages
+        # Then the figures. Without this rung a corpus holding the right *facts*
+        # but no matching *text* answered "nothing in your corpus matches this
+        # question" — blaming the data for a model outage, which is the silent
+        # degradation §13.1 and the README both say does not happen here.
+        return figures_without_prose(store, scope, routed, passages)
+
+    # DISCOVERY.
     return search_passages(store, scope, routed)

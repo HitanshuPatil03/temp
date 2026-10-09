@@ -242,6 +242,9 @@ function ResponseView({ response }: { response: QueryResponse }) {
       open_conflict: "Open conflict",
       out_of_corpus: "Out of corpus",
       no_validated_fact: "No validated fact",
+      // Not a corpus problem, and the label has to say so — the figures are
+      // right there in the refusal.
+      model_unavailable: "Model unavailable",
     };
     return (
       <Card>
