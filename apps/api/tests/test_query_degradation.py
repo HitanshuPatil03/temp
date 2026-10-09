@@ -155,3 +155,45 @@ def test_cited_passages_still_outrank_bare_figures(
     assert response.refusal is None, "a cited passage was available and was skipped"
     assert response.discovery is not None
     assert response.discovery.passages
+
+
+def test_the_streaming_endpoint_degrades_the_same_way(
+    store: Store, secl_production, make_user, bearer, monkeypatch
+) -> None:
+    """``/query/stream`` is a second entry point into the same question.
+
+    It delegates to ``answer`` when the model is unavailable, which is why it
+    inherited this fix for free — and exactly why the delegation is worth
+    pinning. A change that gave the streaming path its own fallback could
+    reintroduce "nothing in your corpus matches" on one endpoint while the other
+    stayed honest, and nothing else here would notice.
+
+    The setting is patched rather than a client injected, because this route
+    builds its own client from settings; that is the thing under test.
+    """
+    from fastapi.testclient import TestClient
+
+    from mrip.api.deps import provide_read_only_store, provide_store
+    from mrip.auth.scope import SCOPE_ALL
+    from mrip.config import get_settings
+    from mrip.main import create_app
+    from mrip.schemas import Role
+
+    monkeypatch.setenv("MRIP_LLM_ENABLED", "false")
+    get_settings.cache_clear()
+    # The route reads `reader.settings`, and the store captured its settings when
+    # the fixture built it — before this patch. Swapping them is what actually
+    # puts the route on the disabled path, which is the whole point of the test.
+    monkeypatch.setattr(store, "_settings", get_settings())
+    try:
+        app = create_app()
+        app.dependency_overrides[provide_store] = lambda: store
+        app.dependency_overrides[provide_read_only_store] = lambda: store
+        officer = make_user("stream.officer", role=Role.OFFICER, entities=(SCOPE_ALL,))
+        with TestClient(app, headers=bearer(officer)) as client:
+            body = client.post("/api/query/stream", json={"question": WHY}).json()
+    finally:
+        get_settings.cache_clear()
+
+    assert body["refusal"]["reason"] == RefusalReason.MODEL_UNAVAILABLE.value
+    assert body["refusal"]["facts"], "the streaming path dropped the figures"

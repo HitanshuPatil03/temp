@@ -56,9 +56,11 @@ def query_suggestions(
     else is: suggesting a question about MCL to an SECL officer would disclose
     that MCL's filings exist.
 
-    Prose intents are offered only when the model is reachable. Suggesting
-    "why did X fall" with the runtime down sends the user to a fallback that
-    looks like a failure.
+    Prose intents are offered only when the model is reachable. Not because the
+    fallback misleads any more — a prose question with the runtime down now
+    returns the figures and says the model is the reason — but because offering
+    "why did X fall" while knowing it cannot be answered as asked is a worse
+    suggestion than one the corpus can satisfy outright.
     """
     suggestions: list[Suggestion] = []
 
