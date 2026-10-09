@@ -56,7 +56,7 @@ own reading.
 
 ![MRIP architecture — evidence-first, from browser to fact store](docs/architecture.svg)
 
-> Solid boxes are **built and tested** (670 tests against a real PostgreSQL); dashed boxes
+> Solid boxes are **built and tested** (672 tests against a real PostgreSQL); dashed boxes
 > are **designed** and on the roadmap. The full diagram is
 > [`docs/architecture.svg`](docs/architecture.svg).
 
@@ -396,7 +396,7 @@ fail the build. CI publishes a full licence inventory on every commit.
 
 ## Current state
 
-**670 tests green in ~70 s** against PostgreSQL 17.11 + pgvector 0.8.6 · ruff and
+**672 tests green in ~70 s** against PostgreSQL 17.11 + pgvector 0.8.6 · ruff and
 `mypy --strict` clean across 80 modules · migrations round-trip with zero schema drift ·
 the frontend builds and serves end to end.
 

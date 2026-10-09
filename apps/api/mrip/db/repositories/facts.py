@@ -438,9 +438,24 @@ class FactRepository:
           appear** for that year, rather than appearing with a summed-months
           number this system never validated as an annual total. Honest absence
           over a plausible wrong bar.
-        - After conflict resolution there is exactly one validated full-year
-          fact per ``(entity, metric, unit, period)``, so the aggregate below is
-          over a single row; ``fact_count`` surfaces it if that ever changes.
+        - **The aggregate picks one value; it does not add them.** This used to
+          be a ``SUM``, resting on the assumption written here that "after
+          conflict resolution there is exactly one validated full-year fact per
+          ``(entity, metric, unit, period)``". That assumption is false, and the
+          radar is why: a conflict needs ``count(distinct value) > 1``, so two
+          documents stating the *same* annual figure — an original and a revised
+          filing that agree — are not in conflict and both stay validated.
+          ``SUM`` then doubled them. On the development corpus the dashboard
+          reported MCL producing 421 Mt against documents saying 210.5, and
+          every entity with a corroborating second source was exactly twice its
+          real figure.
+
+          ``MAX`` is a *representative pick*, not an aggregate: among validated
+          facts the values agree by construction, because any that disagreed
+          would have been marked ``conflicted`` and excluded above. So it
+          returns the figure, and can never return a multiple of it —
+          which is the property that matters on a Ministry slide.
+          ``fact_count`` still says how many sources corroborate it.
         """
         # Date subtraction yields integer days in PostgreSQL. A full fiscal year
         # is 364–366 days; a month is ~30 and a part-year cumulative (Apr–Sep)
@@ -451,7 +466,9 @@ class FactRepository:
         # this query off a full table scan — 3.8 ms against 125 ms over a
         # 1M-fact corpus, measured HQ-wide. Widening either condition silently
         # stops the index matching and puts the dashboard back on a sequential
-        # scan, so a change here needs a migration beside it.
+        # scan, so a change here needs a migration beside it. The aggregate
+        # function is not part of that: the index serves the predicate and the
+        # grouping, so SUM to MAX does not affect it.
         full_year = (facts.c.period_end - facts.c.period_start) >= 350
 
         query = (
@@ -459,7 +476,7 @@ class FactRepository:
                 facts.c.entity_id,
                 facts.c.fiscal_year,
                 facts.c.unit,
-                sa.func.sum(facts.c.value).label("value"),
+                sa.func.max(facts.c.value).label("value"),
                 sa.func.count().label("fact_count"),
             )
             .where(

@@ -71,6 +71,91 @@ def test_series_takes_the_annual_fact_not_the_sum_of_periods(
     assert series[0]["fact_count"] == 1
 
 
+def test_two_sources_agreeing_do_not_double_the_bar(
+    store: Store, make_fact, make_document
+) -> None:
+    """Corroboration is not production.
+
+    An original filing and a revised one can state the *same* annual figure. A
+    conflict needs ``count(distinct value) > 1``, so two facts that agree are
+    not in conflict and both stay validated — which made this the one overcount
+    the period-canonicalisation and full-year-span guards both let through,
+    because neither is about duplicates.
+
+    It was live on the development corpus: the dashboard reported MCL producing
+    421 Mt against documents saying 210.5, and every entity with a second
+    corroborating source was exactly twice its real figure. The aggregate now
+    picks a representative value instead of adding them.
+    """
+    second_source = make_document("revised-annual-statement.pdf")
+    store.register_document(second_source)
+    annual = {
+        "entity_id": "mcl",
+        "value": 210.5e6,
+        "status": FactStatus.VALIDATED,
+        "period_start": date(2024, 4, 1),
+        "period_end": date(2025, 3, 31),
+    }
+    store.insert_facts(
+        [
+            make_fact(**annual),
+            make_fact(**annual, document_id=second_source.document_id),
+        ]
+    )
+
+    series = store.entity_metric_series("coal_production", SCOPE, unit="t")
+
+    assert len(series) == 1
+    assert series[0]["value"] == 210.5e6, "two agreeing sources were added together"
+    # Still reported, because "two documents say this" is worth knowing — it is
+    # the count that must not become the multiplier.
+    assert series[0]["fact_count"] == 2
+
+
+def test_the_chart_and_the_exact_answer_cannot_disagree(
+    store: Store, make_fact, make_document
+) -> None:
+    """The property the series docstring claims, asserted rather than assumed.
+
+    Both paths are supposed to return the one validated full-year figure. While
+    the series summed, they diverged by a factor of however many sources
+    happened to corroborate — and the chart was the one a Ministry slide took
+    its number from.
+    """
+    from mrip.query.exact import resolve_figure
+
+    second_source = make_document("corroborating-statement.pdf")
+    store.register_document(second_source)
+    annual = {
+        "entity_id": "mcl",
+        "value": 210.5e6,
+        "status": FactStatus.VALIDATED,
+        "unit_ambiguous": False,
+        "period_start": date(2024, 4, 1),
+        "period_end": date(2025, 3, 31),
+    }
+    store.insert_facts(
+        [
+            make_fact(**annual),
+            make_fact(**annual, document_id=second_source.document_id),
+        ]
+    )
+
+    charted = store.entity_metric_series("coal_production", SCOPE, unit="t")[0]
+    exact = resolve_figure(
+        store,
+        SCOPE,
+        entity_id="mcl",
+        metric="coal_production",
+        period_label="FY2024-25",
+        fiscal_year="FY2024-25",
+    )
+
+    assert exact.ok, f"the exact path refused: {exact.reason} {exact.message}"
+    assert exact.fact is not None
+    assert charted["value"] == exact.fact.value
+
+
 def test_series_excludes_unvalidated_facts(store: Store, make_fact) -> None:
     """A figure still in review or conflicted is one the exact path refuses, so
     it must not appear on a comparison chart either."""
@@ -133,8 +218,10 @@ def test_one_fiscal_year_has_exactly_one_label() -> None:
       invisible;
     - ``resolve_figure`` matches on ``period_label``, so asking for FY2024-25
       returns one of them and silently ignores the other;
-    - ``entity_metric_series`` groups on ``(entity, fiscal_year, unit)`` and sums
-      every full-year fact, so a chart adds the two together and reports double.
+    - ``entity_metric_series`` groups on ``(entity, fiscal_year, unit)``, so two
+      full-year facts for one year land in one bar. It no longer adds them — see
+      the duplicate-source test above — but canonical labels are what keep the
+      radar and ``resolve_figure`` from being fooled in the first place.
 
     The last one is the same overcount class as the test at the top of this file,
     reached through a different door.

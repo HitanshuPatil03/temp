@@ -8,8 +8,11 @@ span** must resolve to the **same label**, or one measurement becomes two:
 - two sources disagreeing about that span are never grouped, so the disagreement
   stays invisible and both figures stay validated;
 - an exact-figure query returns one of them and silently ignores the other;
-- :meth:`mrip.db.repositories.facts.FactRepository.entity_metric_series` sums
-  every full-year fact within a fiscal year, so a chart adds both and doubles.
+- :meth:`mrip.db.repositories.facts.FactRepository.entity_metric_series` groups
+  every full-year fact within a fiscal year into one bar, so two spellings of the
+  same year land together. That no longer *doubles* the bar — the aggregate picks
+  a representative value rather than adding — but one canonical label per span is
+  still what keeps the radar and the exact path from being fooled.
 
 This file asserts the invariant over the whole vocabulary rather than over the one
 spelling that happened to break it (``FY2024-25`` versus ``April 2024 to March
