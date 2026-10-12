@@ -61,7 +61,9 @@ export function EmptyState({
       <Icon className="size-5 text-ink-3" aria-hidden />
       <p className="text-sm font-medium text-ink">{title}</p>
       {children ? (
-        <p className="max-w-md text-xs leading-relaxed text-ink-2">{children}</p>
+        <p className="max-w-md text-xs leading-relaxed text-ink-2">
+          {children}
+        </p>
       ) : null}
     </div>
   );
@@ -71,6 +73,12 @@ export function EmptyState({
  * A backend refusal (404/422) is rendered as information, not as a failure: the
  * normalizer declining to guess a unit is the product working correctly, and it
  * should not look like a crash.
+ *
+ * The two cases also differ to a screen reader. A refusal is `status`, which is
+ * polite and waits its turn — it is an answer, and interrupting with it would be
+ * wrong. A genuine failure is `alert`, which is assertive, because a reviewer who
+ * has just pressed Approve needs to know it did not happen before they move on.
+ * Both used `status`, so real errors were announced as mildly as refusals.
  */
 export function ErrorState({
   title,
@@ -83,7 +91,7 @@ export function ErrorState({
 }) {
   return (
     <div
-      role="status"
+      role={refusal ? "status" : "alert"}
       className={cn(
         "flex items-start gap-2.5 rounded-md border px-4 py-3 text-sm",
         refusal
@@ -92,13 +100,18 @@ export function ErrorState({
       )}
     >
       <AlertTriangle
-        className={cn("mt-0.5 size-4 shrink-0", refusal ? "text-warning" : "text-critical")}
+        className={cn(
+          "mt-0.5 size-4 shrink-0",
+          refusal ? "text-warning" : "text-critical",
+        )}
         aria-hidden
       />
       <div className="min-w-0">
         <p className="font-medium">{title}</p>
         {detail ? (
-          <p className="mt-0.5 leading-relaxed break-words text-ink-2">{detail}</p>
+          <p className="mt-0.5 leading-relaxed break-words text-ink-2">
+            {detail}
+          </p>
         ) : null}
       </div>
     </div>

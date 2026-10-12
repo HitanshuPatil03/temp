@@ -21,14 +21,25 @@ import { ShieldCheck, UserPlus } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardBody, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardBody,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Field, Input, Select } from "@/components/ui/input";
 import { PageHeader } from "@/components/shell/page-header";
 import { EmptyState, ErrorState, Skeleton } from "@/components/ui/states";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { ApiError, api, fetcher, keys } from "@/lib/api";
 import { formatDate, formatDuration, humanize } from "@/lib/format";
-import type { AuditEntry, PipelineHealth, Role, UserAccount } from "@/lib/types";
+import type {
+  AuditEntry,
+  PipelineHealth,
+  Role,
+  UserAccount,
+} from "@/lib/types";
 
 const ROLES: Role[] = ["viewer", "officer", "reviewer", "approver", "admin"];
 
@@ -46,7 +57,10 @@ export default function AdminPage() {
   if (users.error instanceof ApiError && users.error.status === 403) {
     return (
       <main className="min-w-0 flex-1 px-8 py-6">
-        <PageHeader title="Administration" description="Users and the audit trail." />
+        <PageHeader
+          title="Administration"
+          description="Users and the audit trail."
+        />
         <ErrorState
           title="Administrators only"
           detail="This area manages accounts and reads the audit log. Your role does not include it."
@@ -132,20 +146,26 @@ function PipelineCard() {
                 value={health.data.needs_attention}
                 tone={health.data.needs_attention > 0 ? "critical" : undefined}
               />
-              <Stat label="Handlers" value={health.data.registered_job_kinds.length} />
+              <Stat
+                label="Handlers"
+                value={health.data.registered_job_kinds.length}
+              />
             </div>
 
             {stalled ? (
               <p role="alert" className="text-xs leading-relaxed text-critical">
-                The oldest queued job has been waiting more than fifteen minutes.
-                Either no worker is running, or one is holding a lease it cannot
-                finish. Check that <span className="font-mono">mrip-worker</span> is
-                up before re-running anything.
+                The oldest queued job has been waiting more than fifteen
+                minutes. Either no worker is running, or one is holding a lease
+                it cannot finish. Check that{" "}
+                <span className="font-mono">mrip-worker</span> is up before
+                re-running anything.
               </p>
             ) : null}
 
             <div>
-              <p className="text-xs font-medium text-ink-2">Documents by state</p>
+              <p className="text-xs font-medium text-ink-2">
+                Documents by state
+              </p>
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {Object.entries(health.data.documents_by_state)
                   .filter(([, count]) => count > 0)
@@ -211,7 +231,10 @@ function UsersCard({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
-  async function patch(user: UserAccount, change: Parameters<typeof api.updateUser>[1]) {
+  async function patch(
+    user: UserAccount,
+    change: Parameters<typeof api.updateUser>[1],
+  ) {
     setBusy(user.user_id);
     setError(null);
     try {
@@ -220,7 +243,9 @@ function UsersCard({
       await mutate(keys.audit());
     } catch (cause) {
       setError(
-        cause instanceof ApiError ? cause.detail : "Could not update the account.",
+        cause instanceof ApiError
+          ? cause.detail
+          : "Could not update the account.",
       );
     } finally {
       setBusy(null);
@@ -232,8 +257,9 @@ function UsersCard({
       <CardHeader>
         <CardTitle>Accounts</CardTitle>
         <CardDescription>
-          Role and scope are read from the database on every request, so a change
-          here takes effect on the account&apos;s next action, not at token expiry.
+          Role and scope are read from the database on every request, so a
+          change here takes effect on the account&apos;s next action, not at
+          token expiry.
         </CardDescription>
       </CardHeader>
       <CardBody className="space-y-4">
@@ -249,7 +275,9 @@ function UsersCard({
           <ErrorState
             title="Could not load accounts"
             detail={
-              users.error instanceof ApiError ? users.error.detail : "Request failed."
+              users.error instanceof ApiError
+                ? users.error.detail
+                : "Request failed."
             }
           />
         ) : users.isLoading ? (
@@ -273,7 +301,9 @@ function UsersCard({
                     <span className="block font-medium text-ink">
                       {user.display_name ?? user.username}
                     </span>
-                    <span className="block text-xs text-ink-3">{user.username}</span>
+                    <span className="block text-xs text-ink-3">
+                      {user.username}
+                    </span>
                   </TD>
                   <TD>
                     <Select
@@ -294,7 +324,8 @@ function UsersCard({
                   <TD className="text-xs text-ink-2">
                     {user.entities.includes("*")
                       ? "All entities"
-                      : user.entities.map((e) => e.toUpperCase()).join(", ") || "None"}
+                      : user.entities.map((e) => e.toUpperCase()).join(", ") ||
+                        "None"}
                   </TD>
                   <TD>
                     {user.locked_until ? (
@@ -306,7 +337,9 @@ function UsersCard({
                     )}
                   </TD>
                   <TD className="text-xs text-ink-2">
-                    {user.last_login_at ? formatDate(user.last_login_at) : "never"}
+                    {user.last_login_at
+                      ? formatDate(user.last_login_at)
+                      : "never"}
                   </TD>
                   <TD>
                     <div className="flex justify-end gap-1.5">
@@ -322,7 +355,9 @@ function UsersCard({
                       ) : null}
                       <button
                         type="button"
-                        onClick={() => patch(user, { is_active: !user.is_active })}
+                        onClick={() =>
+                          patch(user, { is_active: !user.is_active })
+                        }
                         disabled={busy === user.user_id}
                         className="rounded-md border border-hairline px-2 py-1 text-xs text-ink-2 hover:bg-plane hover:text-ink disabled:opacity-50"
                       >
@@ -371,7 +406,9 @@ function CreateUser({ onCreated }: { onCreated: () => void }) {
       onCreated();
     } catch (cause) {
       setError(
-        cause instanceof ApiError ? cause.detail : "Could not create the account.",
+        cause instanceof ApiError
+          ? cause.detail
+          : "Could not create the account.",
       );
     } finally {
       setPending(false);
@@ -391,9 +428,15 @@ function CreateUser({ onCreated }: { onCreated: () => void }) {
     <div className="space-y-3 rounded-md border border-hairline bg-plane/50 p-3">
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label="Username" hint="lowercased; the sign-in name">
-          <Input value={username} onChange={(e) => setUsername(e.target.value)} />
+          <Input
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+          />
         </Field>
-        <Field label="Temporary password" hint="the holder must change it on first use">
+        <Field
+          label="Temporary password"
+          hint="the holder must change it on first use"
+        >
           <Input
             type="password"
             value={password}
@@ -401,7 +444,10 @@ function CreateUser({ onCreated }: { onCreated: () => void }) {
           />
         </Field>
         <Field label="Role">
-          <Select value={role} onChange={(e) => setRole(e.target.value as Role)}>
+          <Select
+            value={role}
+            onChange={(e) => setRole(e.target.value as Role)}
+          >
             {ROLES.map((r) => (
               <option key={r} value={r}>
                 {humanize(r)}
@@ -460,7 +506,9 @@ function AuditCard() {
           <ErrorState
             title="Could not load the audit trail"
             detail={
-              audit.error instanceof ApiError ? audit.error.detail : "Request failed."
+              audit.error instanceof ApiError
+                ? audit.error.detail
+                : "Request failed."
             }
           />
         ) : audit.isLoading ? (
@@ -468,8 +516,8 @@ function AuditCard() {
         ) : (audit.data ?? []).length === 0 ? (
           <EmptyState icon={ShieldCheck} title="No audit entries yet" />
         ) : (
-          <Table>
-            <THead>
+          <Table stickyHead>
+            <THead sticky>
               <TR>
                 <TH>When</TH>
                 <TH>Actor</TH>
@@ -493,7 +541,9 @@ function AuditCard() {
                       ? `${entry.subject_type}${entry.subject_id ? ` ${entry.subject_id}` : ""}`
                       : "—"}
                   </TD>
-                  <TD className="text-xs text-ink-3">{entry.source_ip ?? "—"}</TD>
+                  <TD className="text-xs text-ink-3">
+                    {entry.source_ip ?? "—"}
+                  </TD>
                 </TR>
               ))}
             </TBody>

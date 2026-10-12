@@ -104,3 +104,32 @@ body {
   font-size: 0.9375em;
   letter-spacing: -0.01em;
 }
+
+/*
+ * Sticky table headers, for the lists that are long enough to scroll the header
+ * out of view — the audit trail, the document list, the fact list. A column of
+ * bare dates and hashes with no header is unreadable: you cannot tell
+ * `ingested` from `published` without it.
+ *
+ * Written here rather than as Tailwind utilities on `<thead>`, for two reasons
+ * that both only showed up on inspecting the built CSS:
+ *
+ * - `position: sticky` belongs on the `th`, not the `thead`. Sticky on a table
+ *   section works in current browsers but is the less-supported of the two, and
+ *   a `thead`'s own bottom border rides the section box and detaches by a pixel
+ *   at some zoom levels.
+ * - `shadow-[inset_0_-1px_0_var(--color-hairline)]` was never generated.
+ *   Tailwind emitted the `sticky`, `z-10` and `max-h-[70vh]` utilities from the
+ *   same string and silently dropped that one, so the header would have shipped
+ *   with no rule under it and nothing would have failed.
+ *
+ * The background is load-bearing, not decoration: without an opaque header the
+ * rows scroll through it.
+ */
+.sticky-head > tr > th {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background-color: var(--color-surface);
+  box-shadow: inset 0 -1px 0 var(--color-hairline);
+}

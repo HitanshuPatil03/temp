@@ -9,6 +9,7 @@
  */
 
 import {
+  FileCheck2,
   FileText,
   GitCompareArrows,
   Hash,
@@ -27,9 +28,24 @@ import type { CurrentUser } from "@/lib/session";
 import { cn } from "@/lib/utils";
 
 const NAV = [
-  { href: "/", label: "Dashboard", icon: LayoutDashboard, hint: "Headline counts" },
-  { href: "/ask", label: "Ask", icon: MessageSquare, hint: "Evidence-first answers" },
-  { href: "/documents", label: "Documents", icon: FileText, hint: "Ingested sources" },
+  {
+    href: "/",
+    label: "Dashboard",
+    icon: LayoutDashboard,
+    hint: "Headline counts",
+  },
+  {
+    href: "/ask",
+    label: "Ask",
+    icon: MessageSquare,
+    hint: "Evidence-first answers",
+  },
+  {
+    href: "/documents",
+    label: "Documents",
+    icon: FileText,
+    hint: "Ingested sources",
+  },
   { href: "/facts", label: "Facts", icon: Table2, hint: "Extracted figures" },
   {
     href: "/conflicts",
@@ -45,8 +61,12 @@ const NAV = [
   },
   {
     href: "/reports",
+    // Not FileText, which Documents already uses. In a rail the glyph is the
+    // fastest scan target, so two destinations sharing one defeats the point —
+    // and these two are the pair most easily confused, since a report is also a
+    // document. The tick is what distinguishes it: a report has been signed off.
+    icon: FileCheck2,
     label: "Reports",
-    icon: FileText,
     hint: "Pinned-evidence output",
   },
   { href: "/topics", label: "Topics", icon: Hash, hint: "Word cloud, indexed" },
@@ -86,7 +106,8 @@ export function Sidebar({ user }: { user: CurrentUser }) {
       </div>
 
       {nav.map(({ href, label, icon: Icon, hint }) => {
-        const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
+        const active =
+          href === "/" ? pathname === "/" : pathname.startsWith(href);
         return (
           <Link
             key={href}
@@ -119,7 +140,10 @@ export function Sidebar({ user }: { user: CurrentUser }) {
           question an empty list otherwise raises: outage, or access? */}
       <div className="mt-auto border-t border-hairline pt-3">
         <div className="flex items-start gap-2 px-2">
-          <ShieldCheck className="mt-0.5 size-4 shrink-0 text-ink-3" aria-hidden />
+          <ShieldCheck
+            className="mt-0.5 size-4 shrink-0 text-ink-3"
+            aria-hidden
+          />
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-medium text-ink">
               {user.display_name ?? user.username}

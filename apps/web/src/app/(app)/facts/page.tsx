@@ -22,10 +22,21 @@ import useSWR, { useSWRConfig } from "swr";
 import { PageHeader } from "@/components/shell/page-header";
 import { AmbiguityBadge, Badge, StatusBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardBody, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardBody,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Field, Input, Select } from "@/components/ui/input";
 import { Meter } from "@/components/ui/stat";
-import { EmptyState, ErrorState, Refetching, Skeleton } from "@/components/ui/states";
+import {
+  EmptyState,
+  ErrorState,
+  Refetching,
+  Skeleton,
+} from "@/components/ui/states";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { ApiError, api, fetcher, keys } from "@/lib/api";
 import {
@@ -156,7 +167,8 @@ function FactsView() {
                 </CardTitle>
                 {reviewThreshold !== undefined ? (
                   <CardDescription>
-                    Flagged below a {reviewThreshold.toFixed(2)} limiting confidence
+                    Flagged below a {reviewThreshold.toFixed(2)} limiting
+                    confidence
                   </CardDescription>
                 ) : null}
               </div>
@@ -184,8 +196,8 @@ function FactsView() {
                 </EmptyState>
               ) : (
                 <Refetching active={facts.isValidating}>
-                  <Table>
-                    <THead>
+                  <Table stickyHead>
+                    <THead sticky>
                       <TR>
                         <TH>Entity</TH>
                         <TH>Metric</TH>
@@ -257,7 +269,9 @@ function FactsView() {
             reviewThreshold={reviewThreshold}
             onReviewed={(updated) => {
               setSelected(updated);
-              void mutate((key) => typeof key === "string" && key.startsWith("/facts"));
+              void mutate(
+                (key) => typeof key === "string" && key.startsWith("/facts"),
+              );
               void mutate(keys.summary());
             }}
           />
@@ -281,9 +295,9 @@ function EvidencePanel({
       <Card>
         <CardBody>
           <EmptyState icon={FileSearch} title="No fact selected">
-            Select a row to see its receipt — the document, page and cell it came
-            from, what the page literally printed, and the confidence of each
-            extraction stage.
+            Select a row to see its receipt — the document, page and cell it
+            came from, what the page literally printed, and the confidence of
+            each extraction stage.
           </EmptyState>
         </CardBody>
       </Card>
@@ -368,7 +382,9 @@ function EvidencePanel({
 
         <div>
           <div className="flex items-baseline justify-between gap-2">
-            <p className="text-xs font-medium text-ink-2">Confidence by stage</p>
+            <p className="text-xs font-medium text-ink-2">
+              Confidence by stage
+            </p>
             {limiting ? (
               <p className="text-xs text-ink-3">
                 limited by {stageLabel(limiting.stage)}
@@ -393,8 +409,9 @@ function EvidencePanel({
             />
           </div>
           <p className="mt-2 text-xs leading-relaxed text-ink-3">
-            Kept as three numbers on purpose. A 0.99 answer built on a 0.42 character
-            read is a 0.42 fact, and one blended score would hide that.
+            Kept as three numbers on purpose. A 0.99 answer built on a 0.42
+            character read is a 0.42 fact, and one blended score would hide
+            that.
           </p>
         </div>
 
@@ -442,7 +459,9 @@ function ReviewActions({
     setPending(decision);
     setError(null);
     try {
-      const updated = await api.reviewFact(fact.fact_id, decision, { correctedValue });
+      const updated = await api.reviewFact(fact.fact_id, decision, {
+        correctedValue,
+      });
       onReviewed(updated);
     } catch (cause) {
       setError(
@@ -491,7 +510,10 @@ function ReviewActions({
         </div>
       ) : (
         <div className="flex flex-wrap gap-2">
-          <Button onClick={() => act("validate")} pending={pending === "validate"}>
+          <Button
+            onClick={() => act("validate")}
+            pending={pending === "validate"}
+          >
             Validate
           </Button>
           <button

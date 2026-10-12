@@ -8,9 +8,22 @@
 
 import { cn } from "@/lib/utils";
 
-export function Table({ className, ...props }: React.ComponentProps<"table">) {
+export function Table({
+  stickyHead,
+  className,
+  ...props
+}: React.ComponentProps<"table"> & { stickyHead?: boolean }) {
   return (
-    <div className="w-full overflow-x-auto">
+    <div
+      className={cn(
+        "w-full overflow-x-auto",
+        // A sticky header needs a scroll container with a height to stick
+        // inside. The corpus list runs to thousands of rows, and a column of
+        // bare dates and hashes with the header scrolled away is unreadable —
+        // you cannot tell `ingested` from `published` without it.
+        stickyHead && "max-h-[70vh] overflow-y-auto",
+      )}
+    >
       <table
         className={cn("w-full border-collapse text-left text-sm", className)}
         {...props}
@@ -19,10 +32,23 @@ export function Table({ className, ...props }: React.ComponentProps<"table">) {
   );
 }
 
-export function THead({ className, ...props }: React.ComponentProps<"thead">) {
+export function THead({
+  sticky,
+  className,
+  ...props
+}: React.ComponentProps<"thead"> & { sticky?: boolean }) {
   return (
     <thead
-      className={cn("border-b border-hairline text-ink-2", className)}
+      className={cn(
+        "text-ink-2",
+        // `sticky-head` is defined in globals.css, which puts the positioning
+        // on the `th` cells rather than here. See the comment there: Tailwind
+        // silently declined to generate the inset-shadow utility this needs,
+        // and sticky on a `<thead>` is the less well-supported of the two
+        // placements. The border moves with it so the two never stack.
+        sticky ? "sticky-head" : "border-b border-hairline",
+        className,
+      )}
       {...props}
     />
   );
@@ -47,7 +73,9 @@ export function TH({
 }
 
 export function TBody({ className, ...props }: React.ComponentProps<"tbody">) {
-  return <tbody className={cn("divide-y divide-hairline", className)} {...props} />;
+  return (
+    <tbody className={cn("divide-y divide-hairline", className)} {...props} />
+  );
 }
 
 export function TR({

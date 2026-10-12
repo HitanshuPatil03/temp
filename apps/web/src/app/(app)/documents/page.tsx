@@ -679,8 +679,8 @@ function EvidenceWalker({ doc }: { doc: MripDocument }) {
           </EmptyState>
         ) : (
           <Refetching active={evidence.isValidating}>
-            <Table>
-              <THead>
+            <Table stickyHead>
+              <THead sticky>
                 <TR>
                   <TH>Text</TH>
                   <TH>Kind</TH>
