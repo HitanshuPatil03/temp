@@ -31,7 +31,12 @@ from pydantic import BaseModel, Field
 
 from mrip.api.deps import ScopeDep, SourceIpDep, StoreDep, require_role
 from mrip.auth.principal import Principal
-from mrip.db.repositories.reports import IllegalReportTransitionError, SelfApprovalError
+from mrip.db.repositories.reports import (
+    IllegalReportTransitionError,
+    IncompleteReportSignOffError,
+    InsufficientRoleForTransitionError,
+    SelfApprovalError,
+)
 from mrip.llm import client_from_settings
 from mrip.reports.generate import diff as diff_manifest
 from mrip.reports.generate import generate
@@ -49,7 +54,6 @@ from mrip.schemas import FigureDelta, ReportManifest, ReportState, Role
 router = APIRouter(prefix="/reports", tags=["reports"])
 
 OfficerDep = Annotated[Principal, Depends(require_role(Role.OFFICER))]
-ApproverDep = Annotated[Principal, Depends(require_role(Role.APPROVER))]
 
 
 class GenerateRequest(BaseModel):
@@ -216,12 +220,20 @@ def transition_report(
     scope: ScopeDep,
     request: Request,
     caller_ip: SourceIpDep,
-    approver: ApproverDep,
+    officer: OfficerDep,
 ) -> ReportManifest:
     """Move a report through ``draft → in_review → approved → published``.
 
-    Takes the approver role for every move, including sending one back: pushing
-    a report out of review is as much a decision as approving it. A move the
+    **The rank required depends on the move**, not on the endpoint — see
+    ``TRANSITION_ROLE``. An officer submits their own draft for review, a
+    reviewer sends one back, an approver signs it off or publishes it. A single
+    approver gate here used to cover all four, which left an officer able to
+    generate a report and unable to do anything with it.
+
+    The precise check happens in the repository, under the row lock, because the
+    required rank depends on the state the report is actually in. The officer
+    floor stays here so a viewer is refused without a lookup — otherwise a
+    read-only account would learn which report ids exist from the 404. A move the
     lifecycle forbids — anything out of ``published``, or skipping review — is a
     409 naming what *is* allowed from here.
     """
@@ -230,7 +242,8 @@ def transition_report(
             report_id,
             body.state,
             scope,
-            actor_user_id=approver.user_id,
+            actor_user_id=officer.user_id,
+            actor_role=officer.role,
             require_separate_approver=store.settings.require_separate_approver,
         )
     except LookupError as missing:
@@ -243,13 +256,25 @@ def transition_report(
         # which would send an approver to an administrator instead of to a
         # colleague.
         raise HTTPException(status_code=409, detail=str(self_approval)) from self_approval
+    except InsufficientRoleForTransitionError as rank:
+        # 403, unlike the self-approval refusal below: this caller genuinely
+        # lacks the standing for *this* move, and the message names which rank
+        # it needs so they know who to ask.
+        raise HTTPException(
+            status_code=403,
+            detail={"error": "insufficient_role", "message": str(rank)},
+        ) from rank
+    except IncompleteReportSignOffError as incomplete:
+        # 409, like the download refusal it prevents: the request is understood
+        # and declined on the state of the thing, not on who asked.
+        raise HTTPException(status_code=409, detail=str(incomplete)) from incomplete
     except IllegalReportTransitionError as illegal:
         raise HTTPException(status_code=409, detail=str(illegal)) from illegal
 
     store.audit.record(
         f"report.{body.state.value}",
-        actor_user_id=approver.user_id,
-        actor_username=approver.username,
+        actor_user_id=officer.user_id,
+        actor_username=officer.username,
         subject_type="report",
         subject_id=report_id,
         detail={"state": body.state.value, "note": body.note},

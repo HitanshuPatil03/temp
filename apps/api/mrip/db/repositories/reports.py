@@ -27,14 +27,34 @@ from sqlalchemy import Connection
 
 from mrip.auth.scope import Scope
 from mrip.db.tables import reports
-from mrip.schemas import ReportManifest, ReportState
+from mrip.schemas import ReportManifest, ReportState, Role
 
 __all__ = [
     "LEGAL_TRANSITIONS",
+    "TRANSITION_ROLE",
     "IllegalReportTransitionError",
+    "IncompleteReportSignOffError",
+    "InsufficientRoleForTransitionError",
     "ReportRepository",
     "SelfApprovalError",
 ]
+
+
+class IncompleteReportSignOffError(RuntimeError):
+    """An approval or publication of a report that can never be rendered.
+
+    ``missing_required`` is fixed when a manifest is generated and the stored
+    manifest is never rewritten — ``transition`` touches only the state and the
+    sign-off columns. So a report that was incomplete at generation is
+    incomplete for good, and the writers refuse to render it: §11.2 forbids
+    emitting a report with a blank where a required number belongs.
+
+    The lifecycle did not check, so an incomplete report walked ``draft →
+    in_review → approved → published`` on three 200s and then returned 409 on
+    every download. An approver had put their name to something nobody could
+    produce, and ``published`` — which this repository treats as *the record* —
+    pointed at nothing renderable.
+    """
 
 
 class IllegalReportTransitionError(RuntimeError):
@@ -52,6 +72,16 @@ class SelfApprovalError(RuntimeError):
     """
 
 
+class InsufficientRoleForTransitionError(RuntimeError):
+    """The caller's role is below what this particular move requires.
+
+    Separate from a plain route-level role guard because the answer depends on
+    *which* move: the message has to name both sides. "Publishing needs the
+    approver role; you are an officer" is actionable, where a bare "forbidden"
+    on an endpoint that handles four different decisions is not.
+    """
+
+
 #: The publish lifecycle, as the set of moves each state permits. Written as data
 #: so the legal graph can be read at a glance and tested directly, rather than
 #: being implied by a chain of ``if`` statements.
@@ -66,6 +96,41 @@ LEGAL_TRANSITIONS: dict[ReportState, frozenset[ReportState]] = {
     ReportState.IN_REVIEW: frozenset({ReportState.APPROVED, ReportState.DRAFT}),
     ReportState.APPROVED: frozenset({ReportState.PUBLISHED, ReportState.IN_REVIEW}),
     ReportState.PUBLISHED: frozenset(),
+}
+
+
+#: The rank each *transition* needs, keyed by the move rather than by the route.
+#:
+#: One gate for the whole endpoint was the previous rule — approver for every
+#: move — and it made the lifecycle unusable by the role that drives it. An
+#: officer could generate a report and then do nothing with it: submitting their
+#: own draft for review returned 403, so every report had to be walked forward
+#: by an approver from the moment it existed, while the UI showed the officer a
+#: button that could only fail. That is as much a failure of separation of
+#: duties as self-approval is, approached from the other end — the preparer has
+#: to be able to hand work over.
+#:
+#: Keyed on ``(from, to)`` and not on the target alone, because ``in_review`` is
+#: reached by two unrelated acts: an officer submitting a draft, and an approver
+#: withdrawing an approval. Those must not share a rank — and a guard that read
+#: the state *before* taking the row lock could be raced from one into the
+#: other, which is why this is checked inside :meth:`ReportRepository.transition`
+#: rather than at the route.
+#:
+#: Mirrors :data:`LEGAL_TRANSITIONS` exactly; a test asserts the two agree, so a
+#: new edge cannot be added to the graph without deciding who may walk it.
+TRANSITION_ROLE: dict[tuple[ReportState, ReportState], Role] = {
+    # Submitting your own work is handing it over, not deciding it.
+    (ReportState.DRAFT, ReportState.IN_REVIEW): Role.OFFICER,
+    # A reviewer who does not believe a report sends it back rather than
+    # approving it; that is the whole point of the role.
+    (ReportState.IN_REVIEW, ReportState.DRAFT): Role.REVIEWER,
+    # The accountable signature. Four-eyes applies here and nowhere else.
+    (ReportState.IN_REVIEW, ReportState.APPROVED): Role.APPROVER,
+    # Withdrawing an approval undoes a signature someone is on the record for,
+    # so it is an approver's act and not a reviewer's.
+    (ReportState.APPROVED, ReportState.IN_REVIEW): Role.APPROVER,
+    (ReportState.APPROVED, ReportState.PUBLISHED): Role.APPROVER,
 }
 
 
@@ -115,6 +180,7 @@ class ReportRepository:
         scope: Scope,
         *,
         actor_user_id: str | None = None,
+        actor_role: Role | None = None,
         require_separate_approver: bool = True,
     ) -> ReportManifest:
         """Move a report through the publish lifecycle, or refuse.
@@ -123,6 +189,8 @@ class ReportRepository:
         :data:`LEGAL_TRANSITIONS` — including every move out of ``published``.
         Raises :class:`SelfApprovalError` when the approver is the account that
         generated the report and ``require_separate_approver`` is set.
+        Raises :class:`InsufficientRoleForTransitionError` when ``actor_role`` is
+        below what this particular move needs — see :data:`TRANSITION_ROLE`.
         Raises ``LookupError`` when the report does not exist or is out of scope;
         the caller turns that into the 404 that does not confirm its existence.
         """
@@ -136,6 +204,35 @@ class ReportRepository:
             raise IllegalReportTransitionError(
                 f"A {current.value} report cannot become {target.value}. "
                 f"Allowed from here: {allowed or 'nothing — published is final'}."
+            )
+
+        # Checked here, under the row lock taken above, and not at the route.
+        # The required rank depends on where the report *is*, so a guard that
+        # read the state before locking could be raced: an officer cleared for
+        # `draft -> in_review` would carry that clearance into an
+        # `approved -> in_review` withdrawal if an approver moved the report in
+        # between. Reading the state and acting on it have to be one step.
+        # A sign-off is a claim that this report is fit to go out, so it cannot
+        # be made about one that will not render. Both ends are guarded, not
+        # just `approved`: a report approved before this check existed must
+        # still not reach `published`.
+        if target in (ReportState.APPROVED, ReportState.PUBLISHED):
+            manifest = self._hydrate(row)
+            if not manifest.complete:
+                missing = ", ".join(item.label for item in manifest.missing_required)
+                raise IncompleteReportSignOffError(
+                    f"This report cannot become {target.value}: required figures "
+                    f"could not be pinned ({missing}). Resolve the conflict or "
+                    "validate the figure, then regenerate — a manifest's missing "
+                    "fields are fixed when it is generated."
+                )
+
+        required = TRANSITION_ROLE[(current, target)]
+        if actor_role is not None and actor_role.rank < required.rank:
+            article = "an" if actor_role.value[0] in "aeiou" else "a"
+            raise InsufficientRoleForTransitionError(
+                f"Moving a report from {current.value} to {target.value} needs the "
+                f"{required.value} role; you are {article} {actor_role.value}."
             )
 
         # Separation of duties, checked at the sign-off and nowhere else. Moving

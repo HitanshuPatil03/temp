@@ -46,11 +46,16 @@ GUARDED_ROUTES: list[tuple[str, str, str, Role, Role, dict[str, Any] | None]] = 
         {"entity": "secl", "period": "FY2024-25"},
     ),
     (
+        # The *floor*. Which rank a transition needs depends on the move — see
+        # TRANSITION_ROLE — and that is checked in the repository under the row
+        # lock, because it depends on the state the report is in. The route keeps
+        # an officer floor so a viewer is refused without a lookup; without it a
+        # read-only account would learn which report ids exist from the 404.
         "transition report",
         "POST",
         "/api/reports/rpt_x/transition",
-        Role.APPROVER,
-        Role.REVIEWER,
+        Role.OFFICER,
+        Role.VIEWER,
         {"state": "in_review"},
     ),
     (

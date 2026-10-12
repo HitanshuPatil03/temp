@@ -17,14 +17,17 @@ from mrip.auth.scope import Scope
 from mrip.db import Store
 from mrip.db.repositories.reports import (
     LEGAL_TRANSITIONS,
+    TRANSITION_ROLE,
     IllegalReportTransitionError,
+    IncompleteReportSignOffError,
+    InsufficientRoleForTransitionError,
     SelfApprovalError,
 )
 from mrip.reports.generate import generate
 from mrip.reports.render import ReportIncompleteError
 from mrip.reports.template import default_template
 from mrip.reports.writers import render_docx, render_pptx, render_xlsx
-from mrip.schemas import FactStatus, ReportState
+from mrip.schemas import FactStatus, ReportState, Role
 
 SCOPE = Scope.unrestricted("test suite")
 
@@ -286,3 +289,167 @@ def test_a_report_renders_with_the_model_disabled(store: Store, make_fact) -> No
     body = "\n".join(paragraph.text for paragraph in document.paragraphs)
 
     assert "the local model is disabled" in body
+
+
+# ------------------------------------------- who may walk which transition
+
+
+def test_an_officer_can_submit_their_own_draft(store: Store, make_fact) -> None:
+    """The gap that made the lifecycle unusable.
+
+    One approver gate covered all four moves, so an officer could generate a
+    report and then do nothing with it — submitting their own draft for review
+    returned 403 while the UI showed them the button. Every report had to be
+    walked forward by an approver from the moment it existed, which is a failure
+    of separation of duties from the other end: the preparer has to be able to
+    hand work over.
+    """
+    report_id = _stored(store, make_fact).report_id
+
+    moved = store.reports.transition(
+        report_id, ReportState.IN_REVIEW, SCOPE, actor_role=Role.OFFICER
+    )
+
+    assert moved.state is ReportState.IN_REVIEW
+
+
+def test_an_officer_cannot_approve(store: Store, make_fact) -> None:
+    report_id = _stored(store, make_fact).report_id
+    store.reports.transition(
+        report_id, ReportState.IN_REVIEW, SCOPE, actor_role=Role.OFFICER
+    )
+
+    with pytest.raises(InsufficientRoleForTransitionError) as refused:
+        store.reports.transition(
+            report_id, ReportState.APPROVED, SCOPE, actor_role=Role.OFFICER
+        )
+
+    # The message names both sides, because "forbidden" on an endpoint handling
+    # four different decisions tells the caller nothing about who to ask.
+    assert "approver" in str(refused.value)
+    assert "officer" in str(refused.value)
+
+
+def test_withdrawing_an_approval_needs_more_than_sending_back_for_review(
+    store: Store, make_fact, make_user
+) -> None:
+    """``in_review`` is reached by two unrelated acts, which is why the table is
+    keyed on the move and not on the target.
+
+    A reviewer sends a draft back — that is the role's whole purpose. Undoing an
+    *approval* cancels a signature someone is on the record for, so it takes an
+    approver. Keyed on the target alone, one rank would have had to serve both.
+    """
+    report_id = _stored(store, make_fact).report_id
+    store.reports.transition(
+        report_id, ReportState.IN_REVIEW, SCOPE, actor_role=Role.OFFICER
+    )
+
+    # A reviewer may send it back from review.
+    store.reports.transition(
+        report_id, ReportState.DRAFT, SCOPE, actor_role=Role.REVIEWER
+    )
+
+    store.reports.transition(
+        report_id, ReportState.IN_REVIEW, SCOPE, actor_role=Role.OFFICER
+    )
+    # An approval names its approver — `ck_reports_approval_is_all_or_nothing`
+    # refuses a row with `approved_at` set and `approved_by` null, which is the
+    # schema insisting a signature has a name on it.
+    approver = make_user("w.approver", role=Role.APPROVER)
+    store.reports.transition(
+        report_id,
+        ReportState.APPROVED,
+        SCOPE,
+        actor_user_id=approver.user_id,
+        actor_role=Role.APPROVER,
+    )
+
+    # But not withdraw the approval.
+    with pytest.raises(InsufficientRoleForTransitionError):
+        store.reports.transition(
+            report_id, ReportState.IN_REVIEW, SCOPE, actor_role=Role.REVIEWER
+        )
+
+
+def test_every_legal_transition_declares_who_may_walk_it() -> None:
+    """The two tables are one rule written twice, so they have to agree.
+
+    A new edge in ``LEGAL_TRANSITIONS`` without a rank beside it would raise
+    ``KeyError`` at the moment someone tried the move — in production, on a
+    report. This fails at import time instead.
+    """
+    edges = {
+        (source, target)
+        for source, targets in LEGAL_TRANSITIONS.items()
+        for target in targets
+    }
+
+    assert edges == set(TRANSITION_ROLE), (
+        "LEGAL_TRANSITIONS and TRANSITION_ROLE disagree; "
+        f"no rank for {sorted(edges - set(TRANSITION_ROLE))}, "
+        f"rank for non-edges {sorted(set(TRANSITION_ROLE) - edges)}"
+    )
+
+
+# ----------------------------------------- an unrenderable report is not signed
+
+
+def test_an_incomplete_report_cannot_be_approved(store: Store) -> None:
+    """A sign-off is a claim the report is fit to go out.
+
+    ``missing_required`` is fixed at generation and the stored manifest is never
+    rewritten, so a report that was incomplete stays incomplete — and the writers
+    refuse to render it (§11.2 forbids a blank where a required number belongs).
+    The lifecycle did not check, so such a report walked draft → in_review →
+    approved → published on three 200s and then returned 409 on every download.
+    An approver had signed something nobody could produce.
+    """
+    # No facts inserted, so every required figure is missing.
+    manifest = generate(
+        store, SCOPE, default_template(), entity="secl", period="FY2024-25"
+    )
+    assert not manifest.complete, "the fixture must be incomplete to test this"
+    store.reports.create(manifest, entity_id="secl", period_label="FY2024-25")
+
+    # Review is where you are *supposed* to notice, so getting there is allowed.
+    store.reports.transition(
+        manifest.report_id, ReportState.IN_REVIEW, SCOPE, actor_role=Role.OFFICER
+    )
+
+    with pytest.raises(IncompleteReportSignOffError) as refused:
+        store.reports.transition(
+            manifest.report_id, ReportState.APPROVED, SCOPE, actor_role=Role.APPROVER
+        )
+
+    # Names the field as a reader sees it, so a reviewer knows what to resolve.
+    assert "Coal production" in str(refused.value)
+
+
+def test_publishing_is_guarded_too_not_just_approval(store: Store) -> None:
+    """Both ends, because a report approved before this check existed must still
+    not reach ``published`` — the state this repository calls *the record*."""
+    import sqlalchemy as sa
+
+    from mrip.db.tables import reports as reports_table
+
+    manifest = generate(
+        store, SCOPE, default_template(), entity="secl", period="FY2024-25"
+    )
+    store.reports.create(manifest, entity_id="secl", period_label="FY2024-25")
+    # Backdate it into `approved` the way a pre-fix deployment would have left
+    # it, bypassing the lifecycle on purpose.
+    store.connection.execute(
+        sa.update(reports_table)
+        .where(reports_table.c.report_id == manifest.report_id)
+        .values(
+            state=ReportState.APPROVED.value,
+            approved_by=None,
+            approved_at=None,
+        )
+    )
+
+    with pytest.raises(IncompleteReportSignOffError):
+        store.reports.transition(
+            manifest.report_id, ReportState.PUBLISHED, SCOPE, actor_role=Role.APPROVER
+        )
