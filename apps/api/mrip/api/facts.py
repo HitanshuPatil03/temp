@@ -156,7 +156,9 @@ def metric_series(
 ) -> list[dict[str, Any]]:
     """Per-entity fiscal-year series for one metric, shaped for the charts.
 
-    Calendar-year facts are excluded rather than silently mixed in.
+    One validated annual figure per entity, not a total: monthly and part-year
+    facts share a fiscal year, so summing a group reports a multiple of real
+    output. Calendar-year facts are excluded rather than silently mixed in.
     """
     return store.entity_metric_series(metric, scope, unit=unit)
 

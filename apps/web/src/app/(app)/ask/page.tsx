@@ -376,7 +376,7 @@ function ResponseView({ response }: { response: QueryResponse }) {
         <CardHeader>
           <CardTitle>Comparison</CardTitle>
           <CardDescription>
-            Summed from validated facts, grouped by entity and fiscal year.{" "}
+            The one validated annual figure per entity and fiscal year.{" "}
             <Badge tone="neutral">{intentLabel(intent)}</Badge>
           </CardDescription>
         </CardHeader>

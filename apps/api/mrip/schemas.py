@@ -525,12 +525,21 @@ class RefusalReason(StrEnum):
 
 
 class SeriesPoint(BaseModel):
-    """One entity's total for a metric in one fiscal year.
+    """One entity's validated annual figure for a metric in one fiscal year.
 
-    The value is a ``SUM`` over the contributing facts, so a point is a summary,
-    not itself a fact. ``fact_count`` says how many figures stand behind it; the
-    facts themselves are one scoped ``/facts`` query away, which is how the
-    summary stays traceable without inlining every row.
+    **Not a sum**, and that is the point. Monthly and part-year facts carry the
+    same ``fiscal_year``, and two documents can state the same annual figure
+    without disagreeing — so adding the rows in a group reports a multiple of
+    real output. The value is the single validated full-year figure, which is
+    also what the exact-figure path returns, so a chart and an answer cannot
+    disagree.
+
+    ``fact_count`` says how many sources corroborate that figure. It is a count
+    of agreement, not a count of things that were added together.
+
+    A point is still a summary rather than a fact: the facts are one scoped
+    ``/facts`` query away, which is how it stays traceable without inlining
+    every row.
     """
 
     entity_id: str

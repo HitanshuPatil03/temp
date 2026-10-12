@@ -89,12 +89,7 @@ export type Sensitivity = "public" | "internal" | "restricted";
  * — the state before that stage — so the stage runs again.
  */
 export type IngestStage =
-  | "classify"
-  | "digitize"
-  | "extract"
-  | "normalize"
-  | "validate"
-  | "index";
+  "classify" | "digitize" | "extract" | "normalize" | "validate" | "index";
 
 export const INGEST_STAGES: readonly IngestStage[] = [
   "classify",
@@ -166,7 +161,8 @@ export function latestStageProgress(
     const entry = value as Record<string, unknown>;
     const { done, total, at } = entry;
     // A total of 0 is not progress, it is a division by zero waiting to happen.
-    if (typeof done !== "number" || typeof total !== "number" || total <= 0) continue;
+    if (typeof done !== "number" || typeof total !== "number" || total <= 0)
+      continue;
 
     const stamp = typeof at === "string" ? at : "";
     if (best === null || stamp > bestAt) {
@@ -252,7 +248,16 @@ export interface DashboardSummary {
   };
 }
 
-/** One point of `/series/{metric}`, already summed per entity and fiscal year. */
+/**
+ * One point of `/series/{metric}`: the single validated annual figure for an
+ * entity and fiscal year.
+ *
+ * **Not a sum**, and the distinction is load-bearing. Monthly and part-year
+ * facts carry the same `fiscal_year`, and two documents can state the same
+ * annual figure without being in conflict — so adding the rows in a group
+ * reports a multiple of real output. `fact_count` says how many sources
+ * corroborate the figure; it is not a quantity that was added up.
+ */
 export interface SeriesPoint {
   entity_id: string;
   fiscal_year: string;
@@ -335,7 +340,6 @@ export interface AuditEntry {
   source_ip: string | null;
 }
 
-
 // --------------------------------------------------------------- normalizer
 
 export type MTConvention = "million_tonnes" | "metric_tonne";
@@ -389,11 +393,7 @@ export interface ResolvedEntity {
 // ------------------------------------------------------------ query (ARCHITECTURE 13)
 
 export type QueryIntent =
-  | "exact_figure"
-  | "comparison"
-  | "discovery"
-  | "narrative"
-  | "draft";
+  "exact_figure" | "comparison" | "discovery" | "narrative" | "draft";
 
 export type RefusalReason =
   | "ambiguous_unit"

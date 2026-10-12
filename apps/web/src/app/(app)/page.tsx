@@ -27,10 +27,21 @@ import useSWR from "swr";
 import { ProductionChart } from "@/components/charts/production-chart";
 import { ConflictCard } from "@/components/conflicts/conflict-card";
 import { PageHeader } from "@/components/shell/page-header";
-import { Card, CardBody, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardBody,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Field, Select } from "@/components/ui/input";
 import { StatTile } from "@/components/ui/stat";
-import { EmptyState, ErrorState, Refetching, Skeleton } from "@/components/ui/states";
+import {
+  EmptyState,
+  ErrorState,
+  Refetching,
+  Skeleton,
+} from "@/components/ui/states";
 import { ApiError, fetcher, keys } from "@/lib/api";
 import { formatNumber, formatPercent } from "@/lib/format";
 import type { ConflictGroup, DashboardSummary, SeriesPoint } from "@/lib/types";
@@ -52,7 +63,9 @@ export default function DashboardPage() {
   const conflicts = useSWR<ConflictGroup[]>(keys.conflicts(), fetcher);
 
   const fiscalYears = useMemo(() => {
-    const years = new Set((series.data ?? []).map((point) => point.fiscal_year));
+    const years = new Set(
+      (series.data ?? []).map((point) => point.fiscal_year),
+    );
     return [...years].sort().reverse();
   }, [series.data]);
 
@@ -60,7 +73,8 @@ export default function DashboardPage() {
   const activeYear = year || fiscalYears[0] || "";
 
   const points = useMemo(
-    () => (series.data ?? []).filter((point) => point.fiscal_year === activeYear),
+    () =>
+      (series.data ?? []).filter((point) => point.fiscal_year === activeYear),
     [series.data, activeYear],
   );
 
@@ -166,8 +180,9 @@ export default function DashboardPage() {
                 <div>
                   <CardTitle>Coal production by subsidiary</CardTitle>
                   <CardDescription>
-                    Summed from validated facts. Only fiscal-year figures appear —
-                    calendar-year facts are excluded rather than silently mixed in.
+                    The one validated annual figure per subsidiary — not a sum.
+                    Monthly and part-year facts carry the same fiscal year, so
+                    adding them would report several times the real output.
                   </CardDescription>
                 </div>
                 {fiscalYears.length > 0 ? (
@@ -218,9 +233,9 @@ export default function DashboardPage() {
                 <div>
                   <CardTitle>Conflict radar</CardTitle>
                   <CardDescription>
-                    Where two sources report different values for the same entity,
-                    metric, unit and period. Shown side by side and never merged —
-                    a person names the winner.
+                    Where two sources report different values for the same
+                    entity, metric, unit and period. Shown side by side and
+                    never merged — a person names the winner.
                   </CardDescription>
                 </div>
                 {(conflicts.data?.length ?? 0) > 0 ? (
@@ -247,8 +262,8 @@ export default function DashboardPage() {
                 <Skeleton className="h-40" />
               ) : (conflicts.data?.length ?? 0) === 0 ? (
                 <EmptyState icon={ShieldCheck} title="No open conflicts">
-                  Either no two documents disagree, or conflict detection has not run
-                  over this corpus yet. Run it from the{" "}
+                  Either no two documents disagree, or conflict detection has
+                  not run over this corpus yet. Run it from the{" "}
                   <Link href="/conflicts" className="text-blue-550 underline">
                     conflict radar
                   </Link>
