@@ -23,12 +23,24 @@ import { useState } from "react";
 import useSWR, { useSWRConfig } from "swr";
 
 import { PageHeader } from "@/components/shell/page-header";
+import { ContentHash, Locator } from "@/components/ui/locator";
 import { Badge, SyntheticBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardBody, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardBody,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Field, Select } from "@/components/ui/input";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
-import { EmptyState, ErrorState, Refetching, Skeleton } from "@/components/ui/states";
+import {
+  EmptyState,
+  ErrorState,
+  Refetching,
+  Skeleton,
+} from "@/components/ui/states";
 import { api, ApiError, fetcher, keys } from "@/lib/api";
 import { formatBytes, formatDate, formatNumber, humanize } from "@/lib/format";
 import { INGEST_STAGES, latestStageProgress } from "@/lib/types";
@@ -42,18 +54,19 @@ import type {
 import { UploadPanel } from "./upload-panel";
 
 /** Lifecycle state → how it reads on a badge. */
-const STATE_TONE: Record<string, "neutral" | "good" | "warning" | "critical"> = {
-  received: "neutral",
-  classified: "neutral",
-  digitized: "neutral",
-  extracted: "neutral",
-  normalized: "neutral",
-  validated: "neutral",
-  indexed: "neutral",
-  ready: "good",
-  failed: "critical",
-  quarantined: "critical",
-};
+const STATE_TONE: Record<string, "neutral" | "good" | "warning" | "critical"> =
+  {
+    received: "neutral",
+    classified: "neutral",
+    digitized: "neutral",
+    extracted: "neutral",
+    normalized: "neutral",
+    validated: "neutral",
+    indexed: "neutral",
+    ready: "good",
+    failed: "critical",
+    quarantined: "critical",
+  };
 
 /** States a document can still move out of on its own. */
 const IN_FLIGHT = new Set<string>([
@@ -110,10 +123,10 @@ export default function DocumentsPage() {
               <Skeleton className="h-48" />
             ) : (documents.data?.length ?? 0) === 0 ? (
               <EmptyState icon={Files} title="No documents ingested">
-                Upload one above. It is hashed, checked at the boundary, then read
-                through the pipeline — classify, digitize, extract, normalize,
-                validate, index — and every figure it yields will cite the page and
-                cell it came from.
+                Upload one above. It is hashed, checked at the boundary, then
+                read through the pipeline — classify, digitize, extract,
+                normalize, validate, index — and every figure it yields will
+                cite the page and cell it came from.
               </EmptyState>
             ) : (
               <Refetching active={documents.isValidating}>
@@ -170,7 +183,9 @@ export default function DocumentsPage() {
                           <StageProgressBar doc={doc} />
                         </TD>
                         <TD>
-                          <Badge tone="neutral">{humanize(doc.doc_class)}</Badge>
+                          <Badge tone="neutral">
+                            {humanize(doc.doc_class)}
+                          </Badge>
                         </TD>
                         <TD numeric>
                           {doc.version}
@@ -211,10 +226,16 @@ export default function DocumentsPage() {
           <FailurePanel key={`fail-${selected.document_id}`} doc={selected} />
         ) : null}
         {selected ? (
-          <IngestionPanel key={`ingest-${selected.document_id}`} doc={selected} />
+          <IngestionPanel
+            key={`ingest-${selected.document_id}`}
+            doc={selected}
+          />
         ) : null}
         {selected ? (
-          <EvidenceWalker key={`pages-${selected.document_id}`} doc={selected} />
+          <EvidenceWalker
+            key={`pages-${selected.document_id}`}
+            doc={selected}
+          />
         ) : null}
       </main>
     </>
@@ -251,7 +272,10 @@ function FailurePanel({ doc }: { doc: MripDocument }) {
     (doc.failed_stage as IngestStage) ?? "classify",
   );
   const [pending, setPending] = useState(false);
-  const [queued, setQueued] = useState<{ stage: string; job_id: string } | null>(null);
+  const [queued, setQueued] = useState<{
+    stage: string;
+    job_id: string;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   if (doc.state !== "failed" && doc.state !== "quarantined") return null;
@@ -283,17 +307,21 @@ function FailurePanel({ doc }: { doc: MripDocument }) {
           <CardTitle>Stopped at the boundary</CardTitle>
           <CardDescription>
             {doc.title ?? doc.filename} was refused before ingestion and is not
-            re-processed: whatever made these bytes unsafe is still true of them.
+            re-processed: whatever made these bytes unsafe is still true of
+            them.
           </CardDescription>
         </CardHeader>
         <CardBody>
           {doc.failed_reason ? (
-            <p className="text-sm leading-relaxed text-critical">{doc.failed_reason}</p>
+            <p className="text-sm leading-relaxed text-critical">
+              {doc.failed_reason}
+            </p>
           ) : null}
           <p className="mt-3 text-xs leading-relaxed text-ink-2">
-            Ask the subsidiary for a copy without the protection or the archive, and
-            upload that as a new document. Nothing is lost by leaving this row here —
-            it is the record that the file arrived and why it was not used.
+            Ask the subsidiary for a copy without the protection or the archive,
+            and upload that as a new document. Nothing is lost by leaving this
+            row here — it is the record that the file arrived and why it was not
+            used.
           </p>
         </CardBody>
       </Card>
@@ -307,8 +335,8 @@ function FailurePanel({ doc }: { doc: MripDocument }) {
           Ingestion failed{doc.failed_stage ? ` at ${doc.failed_stage}` : ""}
         </CardTitle>
         <CardDescription>
-          {doc.title ?? doc.filename} — the stages before this one finished, so a
-          re-run starts from here rather than from the beginning.
+          {doc.title ?? doc.filename} — the stages before this one finished, so
+          a re-run starts from here rather than from the beginning.
         </CardDescription>
       </CardHeader>
       <CardBody className="space-y-4">
@@ -349,10 +377,11 @@ function FailurePanel({ doc }: { doc: MripDocument }) {
 
         {queued ? (
           <p className="text-xs leading-relaxed text-ink-2">
-            Queued from <span className="font-medium text-ink">{queued.stage}</span> as{" "}
-            <span className="font-mono">{queued.job_id}</span>. A worker picks it up
-            within a second or two; the state in the table above changes as it
-            progresses.
+            Queued from{" "}
+            <span className="font-medium text-ink">{queued.stage}</span> as{" "}
+            <span className="font-mono">{queued.job_id}</span>. A worker picks
+            it up within a second or two; the state in the table above changes
+            as it progresses.
           </p>
         ) : null}
       </CardBody>
@@ -404,7 +433,8 @@ function IngestionPanel({ doc }: { doc: MripDocument }) {
       <CardHeader>
         <CardTitle>Ingestion</CardTitle>
         <CardDescription>
-          Each stage, and what the extractor made of this document&apos;s tables.
+          Each stage, and what the extractor made of this document&apos;s
+          tables.
         </CardDescription>
       </CardHeader>
       <CardBody className="space-y-5">
@@ -425,13 +455,21 @@ function IngestionPanel({ doc }: { doc: MripDocument }) {
               {detail.data.stages.map((stage) => (
                 <li key={stage.name} className="flex items-center gap-1.5">
                   {stage.completed ? (
-                    <CheckCircle2 className="size-3.5 shrink-0 text-good" aria-hidden />
+                    <CheckCircle2
+                      className="size-3.5 shrink-0 text-good"
+                      aria-hidden
+                    />
                   ) : (
-                    <Circle className="size-3.5 shrink-0 text-ink-3" aria-hidden />
+                    <Circle
+                      className="size-3.5 shrink-0 text-ink-3"
+                      aria-hidden
+                    />
                   )}
                   <span
                     className={
-                      stage.completed ? "text-xs text-ink" : "text-xs text-ink-3"
+                      stage.completed
+                        ? "text-xs text-ink"
+                        : "text-xs text-ink-3"
                     }
                     title={stage.description}
                   >
@@ -443,13 +481,14 @@ function IngestionPanel({ doc }: { doc: MripDocument }) {
 
             {extraction === null ? (
               <p className="text-xs leading-relaxed text-ink-3">
-                Extraction has not run yet, so there is nothing to report about this
-                document&apos;s tables.
+                Extraction has not run yet, so there is nothing to report about
+                this document&apos;s tables.
               </p>
             ) : (
               <div className="space-y-3">
                 <p className="text-xs leading-relaxed text-ink-2">
-                  {extraction.facts !== null && extraction.candidates !== null ? (
+                  {extraction.facts !== null &&
+                  extraction.candidates !== null ? (
                     <>
                       <span className="tnum font-medium text-ink">
                         {formatNumber(extraction.facts, 0)}
@@ -473,8 +512,8 @@ function IngestionPanel({ doc }: { doc: MripDocument }) {
                           <span className="tnum font-medium text-ink">
                             {formatNumber(extraction.accepted, 0)}
                           </span>{" "}
-                          {extraction.accepted === 1 ? "is" : "are"} validated and can
-                          be pinned in a report.
+                          {extraction.accepted === 1 ? "is" : "are"} validated
+                          and can be pinned in a report.
                         </>
                       ) : null}
                     </>
@@ -490,7 +529,10 @@ function IngestionPanel({ doc }: { doc: MripDocument }) {
                     </p>
                     <ul className="mt-1.5 space-y-1.5">
                       {extraction.needs_attention.map((group) => (
-                        <li key={group.reason} className="text-xs leading-relaxed">
+                        <li
+                          key={group.reason}
+                          className="text-xs leading-relaxed"
+                        >
                           <span className="tnum font-medium text-ink">
                             {formatNumber(group.count, 0)}
                           </span>{" "}
@@ -515,8 +557,8 @@ function IngestionPanel({ doc }: { doc: MripDocument }) {
                 {extraction.ignored.length > 0 ? (
                   <div>
                     <p className="text-xs text-ink-3">
-                      Skipped as table furniture — correct behaviour, listed so the
-                      arithmetic adds up
+                      Skipped as table furniture — correct behaviour, listed so
+                      the arithmetic adds up
                     </p>
                     <div className="mt-1.5 flex flex-wrap gap-1.5">
                       {extraction.ignored.map((group) => (
@@ -542,7 +584,10 @@ function StageProgressBar({ doc }: { doc: MripDocument }) {
   const progress = latestStageProgress(doc.stage_progress);
   if (progress === null) return null;
 
-  const percent = Math.min(100, Math.round((progress.done / progress.total) * 100));
+  const percent = Math.min(
+    100,
+    Math.round((progress.done / progress.total) * 100),
+  );
 
   return (
     <span className="mt-1 flex items-center gap-1.5">
@@ -584,9 +629,7 @@ function EvidenceWalker({ doc }: { doc: MripDocument }) {
             <CardTitle>Evidence · page {page}</CardTitle>
             <CardDescription>
               {doc.title ?? doc.filename} · version {doc.version} ·{" "}
-              <span className="font-mono text-xs">
-                {doc.content_hash.slice(0, 12)}…
-              </span>
+              <ContentHash value={doc.content_hash} />
             </CardDescription>
           </div>
           <div className="flex items-center gap-2">
@@ -605,7 +648,9 @@ function EvidenceWalker({ doc }: { doc: MripDocument }) {
               size="sm"
               variant="outline"
               disabled={page >= pageCount}
-              onClick={() => setPage((current) => Math.min(pageCount, current + 1))}
+              onClick={() =>
+                setPage((current) => Math.min(pageCount, current + 1))
+              }
             >
               Next →
             </Button>
@@ -629,8 +674,8 @@ function EvidenceWalker({ doc }: { doc: MripDocument }) {
           <Skeleton className="h-32" />
         ) : (evidence.data?.length ?? 0) === 0 ? (
           <EmptyState icon={Layers} title={`No evidence spans on page ${page}`}>
-            Either the page carries no extractable text, or digitization has not run
-            for this version.
+            Either the page carries no extractable text, or digitization has not
+            run for this version.
           </EmptyState>
         ) : (
           <Refetching active={evidence.isValidating}>
@@ -655,10 +700,15 @@ function EvidenceWalker({ doc }: { doc: MripDocument }) {
                     <TD className="text-ink-2">
                       {span.kind ? humanize(span.kind) : "—"}
                     </TD>
-                    <TD className="font-mono text-xs text-ink-2">
-                      {span.table_id
-                        ? `${span.table_id}${span.cell_ref ? `!${span.cell_ref}` : ""}`
-                        : "—"}
+                    <TD className="text-ink-2">
+                      {span.table_id ? (
+                        <Locator>
+                          {span.table_id}
+                          {span.cell_ref ? `!${span.cell_ref}` : ""}
+                        </Locator>
+                      ) : (
+                        "—"
+                      )}
                     </TD>
                     <TD className="text-ink-2">
                       {span.extraction_method

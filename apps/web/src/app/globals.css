@@ -53,8 +53,11 @@
   --color-critical: #d03b3b;
   --color-success-ink: #006300;
 
-  --font-sans: system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
+  /* IBM Plex, self-hosted. The stacks are declared in app/layout.tsx, which is
+     also where the reasoning lives — including why this is not the system
+     stack and not a CDN. */
+  --font-sans: var(--font-plex-sans), system-ui, "Segoe UI", sans-serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, "Cascadia Mono", monospace;
 }
 
 html {
@@ -80,6 +83,24 @@ body {
 
 /* Numbers that stack vertically get equal-width digits; standalone figures keep
    proportional ones, where tabular spacing just reads loose. */
+/* Tabular figures, for any column of numbers that is read down rather than
+   across. Plex's tabular set is genuinely monospaced, so tonnages align on the
+   digit — which matters more in Indian grouping than in thousands, because
+   `19,30,00,000` and `1,39,00,000` put their commas in different places and a
+   half-digit wobble is obvious. Deliberately *not* applied to headline stat
+   tiles: at display sizes every digit having the width of a zero makes a figure
+   like `121` look gappy. See components/ui/stat.tsx. */
 .tnum {
   font-variant-numeric: tabular-nums;
+}
+
+/* Evidence locators, fact ids and content hashes. Set in Plex Mono one step
+   down, because an identifier is reference material beside the figure it
+   belongs to, not a peer of it — and `slashed-zero` so a hash read aloud or
+   typed back cannot confuse 0 with O. */
+.locator {
+  font-family: var(--font-mono);
+  font-variant-numeric: slashed-zero tabular-nums;
+  font-size: 0.9375em;
+  letter-spacing: -0.01em;
 }

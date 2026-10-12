@@ -24,13 +24,32 @@ import useSWR from "swr";
 import { PageHeader } from "@/components/shell/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardBody, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardBody,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { ErrorState } from "@/components/ui/states";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
-import { ApiError, fetcher, keys, query, queryStream, type StreamEvent } from "@/lib/api";
+import {
+  ApiError,
+  fetcher,
+  keys,
+  query,
+  queryStream,
+  type StreamEvent,
+} from "@/lib/api";
+import { Locator } from "@/components/ui/locator";
 import { entityLabel, formatValue, humanize, locator } from "@/lib/format";
-import type { Fact, Passage, QueryResponse, QuerySuggestion } from "@/lib/types";
+import type {
+  Fact,
+  Passage,
+  QueryResponse,
+  QuerySuggestion,
+} from "@/lib/types";
 
 // Fallback chips, shown only if the corpus-derived suggestions have not loaded
 // (or the corpus is empty). The live chips come from /query/suggestions, which
@@ -48,7 +67,13 @@ const EXAMPLES = [
 type AskState =
   | { phase: "idle" }
   | { phase: "loading"; question: string; streaming: boolean }
-  | { phase: "streaming"; question: string; prose: string; facts: Fact[]; passages: Passage[] }
+  | {
+      phase: "streaming";
+      question: string;
+      prose: string;
+      facts: Fact[];
+      passages: Passage[];
+    }
   | { phase: "done"; response: QueryResponse }
   | { phase: "error"; message: string };
 
@@ -89,12 +114,14 @@ function ProseBlock({ prose, flagged }: { prose: string; flagged: boolean }) {
 
   return (
     <div className="space-y-2">
-      <p className="whitespace-pre-wrap text-sm leading-relaxed text-ink">{prose}</p>
+      <p className="whitespace-pre-wrap text-sm leading-relaxed text-ink">
+        {prose}
+      </p>
       {flagged ? (
         <p className="flex items-center gap-1.5 text-xs text-warning">
-          <AlertTriangle className="size-3.5 shrink-0" aria-hidden />
-          A sentence with an unsupported figure was removed. Every number shown was
-          already in the citations below.
+          <AlertTriangle className="size-3.5 shrink-0" aria-hidden />A sentence
+          with an unsupported figure was removed. Every number shown was already
+          in the citations below.
         </p>
       ) : null}
     </div>
@@ -117,17 +144,23 @@ function Citations({
             Pinned facts · {facts.length}
           </p>
           <p className="text-xs text-ink-3">
-            The prose was grounded only on these figures. Every number must appear
-            verbatim in this list or the retrieved passages.
+            The prose was grounded only on these figures. Every number must
+            appear verbatim in this list or the retrieved passages.
           </p>
           <div className="mt-2 divide-y divide-hairline rounded-md border border-hairline">
             {facts.map((fact) => (
-              <div key={fact.fact_id} className="flex items-start justify-between gap-3 px-3 py-2">
+              <div
+                key={fact.fact_id}
+                className="flex items-start justify-between gap-3 px-3 py-2"
+              >
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-ink">
-                    {entityLabel(fact.entity_id)} · {humanize(fact.metric)} · {fact.period_label}
+                    {entityLabel(fact.entity_id)} · {humanize(fact.metric)} ·{" "}
+                    {fact.period_label}
                   </p>
-                  <p className="font-mono text-xs text-ink-3">{locator(fact.evidence)}</p>
+                  <p className="text-xs text-ink-3">
+                    <Locator>{locator(fact.evidence)}</Locator>
+                  </p>
                 </div>
                 <p className="tnum shrink-0 text-sm font-medium text-ink">
                   {formatValue(fact.value, fact.unit)}
@@ -149,15 +182,24 @@ function Citations({
                 className="rounded-md border border-hairline bg-plane px-3 py-2"
               >
                 <p className="text-xs font-medium text-ink">
-                  {[passage.title ?? passage.filename ?? passage.document_id, passage.page !== null ? `p.${passage.page}` : null]
+                  {[
+                    passage.title ?? passage.filename ?? passage.document_id,
+                    passage.page !== null ? `p.${passage.page}` : null,
+                  ]
                     .filter(Boolean)
                     .join(" · ")}
                 </p>
-                <p className="mt-1 text-xs leading-relaxed text-ink-2">{passage.snippet}</p>
-                <p className="mt-1 font-mono text-xs text-ink-3">
-                  doc:{passage.document_id}
-                  {passage.document_version > 1 ? ` v${passage.document_version}` : ""}
-                  {passage.page !== null ? ` p.${passage.page}` : ""}
+                <p className="mt-1 text-xs leading-relaxed text-ink-2">
+                  {passage.snippet}
+                </p>
+                <p className="mt-1 text-xs text-ink-3">
+                  <Locator>
+                    doc:{passage.document_id}
+                    {passage.document_version > 1
+                      ? ` v${passage.document_version}`
+                      : ""}
+                    {passage.page !== null ? ` p.${passage.page}` : ""}
+                  </Locator>
                 </p>
               </div>
             ))}
@@ -173,7 +215,9 @@ function FigureAnswer({ fact }: { fact: Fact }) {
     <div className="space-y-3">
       <div>
         <p className="text-xs font-medium text-ink-2">Answer · exact figure</p>
-        <p className="tnum mt-1 text-2xl font-semibold text-ink">{formatValue(fact.value, fact.unit)}</p>
+        <p className="tnum mt-1 text-2xl font-semibold text-ink">
+          {formatValue(fact.value, fact.unit)}
+        </p>
         <p className="tnum text-xs text-ink-3">
           as printed {fact.raw_value} {fact.raw_unit} · {fact.period_label}
         </p>
@@ -184,9 +228,13 @@ function FigureAnswer({ fact }: { fact: Fact }) {
         <dt className="text-ink-3">Metric</dt>
         <dd className="text-ink">{humanize(fact.metric)}</dd>
         <dt className="text-ink-3">Source</dt>
-        <dd className="font-mono text-ink">{locator(fact.evidence)}</dd>
+        <dd className="text-ink">
+          <Locator>{locator(fact.evidence)}</Locator>
+        </dd>
         <dt className="text-ink-3">Evidence</dt>
-        <dd className="font-mono text-xs text-ink-3">{fact.evidence.snippet ?? "—"}</dd>
+        <dd className="font-mono text-xs text-ink-3">
+          {fact.evidence.snippet ?? "—"}
+        </dd>
       </dl>
     </div>
   );
@@ -196,7 +244,13 @@ function ComparisonAnswer({
   points,
   metric,
 }: {
-  points: { entity_id: string; fiscal_year: string; unit: string; value: number; fact_count: number }[];
+  points: {
+    entity_id: string;
+    fiscal_year: string;
+    unit: string;
+    value: number;
+    fact_count: number;
+  }[];
   metric: string;
 }) {
   if (points.length === 0) return null;
@@ -233,7 +287,15 @@ function ComparisonAnswer({
 }
 
 function ResponseView({ response }: { response: QueryResponse }) {
-  const { intent, model_used, figure, comparison, discovery, narrative, refusal } = response;
+  const {
+    intent,
+    model_used,
+    figure,
+    comparison,
+    discovery,
+    narrative,
+    refusal,
+  } = response;
 
   // Refusal — structured, not an exception. Show why, and the evidence behind it.
   if (refusal) {
@@ -264,13 +326,17 @@ function ResponseView({ response }: { response: QueryResponse }) {
           {refusal.conflict ? (
             <div className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2">
               <p className="text-xs font-medium text-ink">
-                Conflicting values for {entityLabel(refusal.conflict.entity_id)} ·{" "}
-                {humanize(refusal.conflict.metric)} · {refusal.conflict.period_label}
+                Conflicting values for {entityLabel(refusal.conflict.entity_id)}{" "}
+                · {humanize(refusal.conflict.metric)} ·{" "}
+                {refusal.conflict.period_label}
               </p>
               <ul className="mt-1 space-y-1">
                 {refusal.conflict.facts.map((fact) => (
                   <li key={fact.fact_id} className="text-xs text-ink-2">
-                    {formatValue(fact.value, fact.unit)} — {locator(fact.evidence)}
+                    <span className="tnum">
+                      {formatValue(fact.value, fact.unit)}
+                    </span>{" "}
+                    — <Locator>{locator(fact.evidence)}</Locator>
                   </li>
                 ))}
               </ul>
@@ -292,7 +358,9 @@ function ResponseView({ response }: { response: QueryResponse }) {
           <CardDescription>
             One validated fact that answers the question exactly.{" "}
             <Badge tone="neutral">{intentLabel(intent)}</Badge>
-            <span className="ml-2 text-xs text-ink-3">{modelBadge(model_used)}</span>
+            <span className="ml-2 text-xs text-ink-3">
+              {modelBadge(model_used)}
+            </span>
           </CardDescription>
         </CardHeader>
         <CardBody>
@@ -313,7 +381,10 @@ function ResponseView({ response }: { response: QueryResponse }) {
           </CardDescription>
         </CardHeader>
         <CardBody>
-          <ComparisonAnswer points={comparison.points} metric={comparison.metric} />
+          <ComparisonAnswer
+            points={comparison.points}
+            metric={comparison.metric}
+          />
         </CardBody>
       </Card>
     );
@@ -328,8 +399,8 @@ function ResponseView({ response }: { response: QueryResponse }) {
             Places to look
           </CardTitle>
           <CardDescription>
-            No single figure answers this — here are the passages the retriever found.{" "}
-            <Badge tone="neutral">{intentLabel(intent)}</Badge>
+            No single figure answers this — here are the passages the retriever
+            found. <Badge tone="neutral">{intentLabel(intent)}</Badge>
           </CardDescription>
         </CardHeader>
         <CardBody>
@@ -352,9 +423,11 @@ function ResponseView({ response }: { response: QueryResponse }) {
             {intent === "draft" ? "Draft reply" : "Narrative"}
           </CardTitle>
           <CardDescription>
-            Prose written around pinned figures. Verified numeral-by-numeral; invented
-            numbers drop their sentence.{" "}
-            <Badge tone={model_used ? "info" : "neutral"}>{modelBadge(model_used)}</Badge>
+            Prose written around pinned figures. Verified numeral-by-numeral;
+            invented numbers drop their sentence.{" "}
+            <Badge tone={model_used ? "info" : "neutral"}>
+              {modelBadge(model_used)}
+            </Badge>
             <Badge tone="neutral" className="ml-2">
               {intentLabel(intent)}
             </Badge>
@@ -369,7 +442,10 @@ function ResponseView({ response }: { response: QueryResponse }) {
   }
 
   return (
-    <ErrorState title="Empty response" detail="The API returned no answer and no refusal." />
+    <ErrorState
+      title="Empty response"
+      detail="The API returned no answer and no refusal."
+    />
   );
 }
 
@@ -380,7 +456,10 @@ export default function AskPage() {
 
   // Suggestions derived from the caller's actual corpus. On failure or an empty
   // corpus this is just absent and the static EXAMPLES stand in.
-  const suggestions = useSWR<QuerySuggestion[]>(keys.querySuggestions(), fetcher);
+  const suggestions = useSWR<QuerySuggestion[]>(
+    keys.querySuggestions(),
+    fetcher,
+  );
   const anchorRef = useRef<HTMLDivElement>(null);
 
   const isBusy = state.phase === "loading" || state.phase === "streaming";
@@ -410,21 +489,38 @@ export default function AskPage() {
                 setState({ phase: "done", response: full });
                 return;
               }
-              if (data && ("figure" in data || "comparison" in data || "discovery" in data || "refusal" in data)) {
+              if (
+                data &&
+                ("figure" in data ||
+                  "comparison" in data ||
+                  "discovery" in data ||
+                  "refusal" in data)
+              ) {
                 const full = data as unknown as QueryResponse;
                 setState({ phase: "done", response: full });
                 return;
               }
               // True prose meta — carry citations and flip to streaming prose
-              const typed = event.data as { facts?: Fact[]; passages?: Passage[] };
+              const typed = event.data as {
+                facts?: Fact[];
+                passages?: Passage[];
+              };
               metaFacts = (typed.facts as Fact[]) ?? [];
               metaPassages = (typed.passages as Passage[]) ?? [];
               sawMeta = true;
-              setState({ phase: "streaming", question: trimmed, prose: "", facts: metaFacts, passages: metaPassages });
+              setState({
+                phase: "streaming",
+                question: trimmed,
+                prose: "",
+                facts: metaFacts,
+                passages: metaPassages,
+              });
             } else if (event.event === "token") {
               proseBuffer += (event.data as { t: string }).t;
               setState((prev) =>
-                prev.phase === "streaming" ? { ...prev, prose: proseBuffer } : prev,
+                prev.phase === "streaming"
+                  ? { ...prev, prose: proseBuffer }
+                  : prev,
               );
             } else if (event.event === "done") {
               const done = event.data as { prose: string; flagged: boolean };
@@ -491,7 +587,11 @@ export default function AskPage() {
   );
 
   useEffect(() => {
-    if (state.phase === "streaming" || state.phase === "done" || state.phase === "error") {
+    if (
+      state.phase === "streaming" ||
+      state.phase === "done" ||
+      state.phase === "error"
+    ) {
       anchorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   }, [state.phase]);
@@ -525,7 +625,12 @@ export default function AskPage() {
                     className="flex-1"
                     disabled={isBusy}
                   />
-                  <Button type="submit" variant="primary" disabled={isBusy || !input.trim()} pending={isBusy}>
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    disabled={isBusy || !input.trim()}
+                    pending={isBusy}
+                  >
                     <Send className="size-3.5" aria-hidden />
                     Ask
                   </Button>
@@ -582,13 +687,16 @@ export default function AskPage() {
               <CardBody>
                 <div className="flex flex-col items-center gap-2 rounded-md border border-dashed border-hairline px-6 py-10 text-center">
                   <MessageSquare className="size-5 text-ink-3" aria-hidden />
-                  <p className="text-sm font-medium text-ink">No question yet</p>
+                  <p className="text-sm font-medium text-ink">
+                    No question yet
+                  </p>
                   <p className="max-w-md text-xs leading-relaxed text-ink-2">
-                    Try exact_figure (&ldquo;SECL coal production FY2024-25&rdquo;), comparison
-                    (&ldquo;compare coal production&hellip;&rdquo;), discovery, or narrative/draft
-                    (&ldquo;why did&hellip;&rdquo; / &ldquo;draft a reply&hellip;&rdquo;). The API
-                    routes by shape — prose only where you asked for it, and always around pinned
-                    evidence.
+                    Try exact_figure (&ldquo;SECL coal production
+                    FY2024-25&rdquo;), comparison (&ldquo;compare coal
+                    production&hellip;&rdquo;), discovery, or narrative/draft
+                    (&ldquo;why did&hellip;&rdquo; / &ldquo;draft a
+                    reply&hellip;&rdquo;). The API routes by shape — prose only
+                    where you asked for it, and always around pinned evidence.
                   </p>
                 </div>
               </CardBody>
@@ -597,7 +705,10 @@ export default function AskPage() {
             <Card>
               <CardBody>
                 <p className="flex items-center gap-2 text-sm text-ink-2">
-                  <span className="size-2 animate-pulse rounded-full bg-series-1" aria-hidden />
+                  <span
+                    className="size-2 animate-pulse rounded-full bg-series-1"
+                    aria-hidden
+                  />
                   Answering &ldquo;{state.question}&rdquo;
                   {state.streaming ? " — streaming…" : "…"}
                 </p>
@@ -611,14 +722,19 @@ export default function AskPage() {
                   Writing…
                 </CardTitle>
                 <CardDescription>
-                  Streaming around {state.facts.length} pinned fact{state.facts.length === 1 ? "" : "s"} and{" "}
-                  {state.passages.length} passage{state.passages.length === 1 ? "" : "s"}.
+                  Streaming around {state.facts.length} pinned fact
+                  {state.facts.length === 1 ? "" : "s"} and{" "}
+                  {state.passages.length} passage
+                  {state.passages.length === 1 ? "" : "s"}.
                 </CardDescription>
               </CardHeader>
               <CardBody className="space-y-4">
                 <p className="whitespace-pre-wrap text-sm leading-relaxed text-ink">
                   {state.prose || "…"}
-                  <span className="ml-0.5 inline-block size-2 animate-pulse rounded-sm bg-series-1 align-middle" aria-hidden />
+                  <span
+                    className="ml-0.5 inline-block size-2 animate-pulse rounded-sm bg-series-1 align-middle"
+                    aria-hidden
+                  />
                 </p>
                 <Citations facts={state.facts} passages={state.passages} />
               </CardBody>
@@ -626,7 +742,10 @@ export default function AskPage() {
           ) : state.phase === "done" ? (
             <ResponseView response={state.response} />
           ) : (
-            <ErrorState title="Cannot answer that question" detail={state.message} />
+            <ErrorState
+              title="Cannot answer that question"
+              detail={state.message}
+            />
           )}
         </div>
       </main>
