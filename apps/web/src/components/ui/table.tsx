@@ -78,19 +78,66 @@ export function TBody({ className, ...props }: React.ComponentProps<"tbody">) {
   );
 }
 
+/**
+ * A row, optionally selectable.
+ *
+ * **`onSelect` rather than `onClick`, and that is the whole point.** These rows
+ * were clickable and nothing else: a `<tr>` carrying a click handler with no
+ * `tabIndex` and no key handler cannot be reached from a keyboard, so the
+ * detail panel on the documents, facts and topics pages was mouse-only. That
+ * is WCAG 2.1.1 at Level A, and on these three pages it is not a polish item —
+ * selecting a row *is* the navigation.
+ *
+ * Taking a dedicated `onSelect` instead of leaving `onClick` to the caller is
+ * what makes that unforgettable: a selectable row cannot be wired up now
+ * without also being focusable and key-activatable, because the component does
+ * both or neither.
+ *
+ * The row stays a row. `role="button"` would make a screen reader stop
+ * announcing it as a row with cells, trading one barrier for another, and
+ * `role="grid"` would promise arrow-key navigation that is not implemented.
+ * Selection is conveyed with `aria-current`, which is valid on any element and
+ * means exactly this — the current item within a set.
+ */
 export function TR({
   interactive,
   selected,
+  onSelect,
   className,
   ...props
-}: React.ComponentProps<"tr"> & { interactive?: boolean; selected?: boolean }) {
+}: React.ComponentProps<"tr"> & {
+  interactive?: boolean;
+  selected?: boolean;
+  /** Makes the row selectable by mouse *and* keyboard. */
+  onSelect?: () => void;
+}) {
+  const selectable = Boolean(onSelect) || interactive;
+
   return (
     <tr
       className={cn(
-        interactive && "cursor-pointer transition-colors hover:bg-plane",
+        selectable &&
+          "cursor-pointer transition-colors hover:bg-plane focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-blue-550",
         selected && "bg-series-1/5 hover:bg-series-1/5",
         className,
       )}
+      // Only focusable when it actually does something: a tab stop on every
+      // row of a three-thousand-row corpus list, most of them inert, would be
+      // its own accessibility problem.
+      tabIndex={onSelect ? 0 : undefined}
+      aria-current={selected ? true : undefined}
+      onClick={onSelect}
+      onKeyDown={
+        onSelect
+          ? (event) => {
+              if (event.key !== "Enter" && event.key !== " ") return;
+              // Space scrolls the page by default, and a row that scrolls
+              // instead of selecting is worse than one that does nothing.
+              event.preventDefault();
+              onSelect();
+            }
+          : undefined
+      }
       {...props}
     />
   );

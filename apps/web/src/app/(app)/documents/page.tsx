@@ -149,7 +149,7 @@ export default function DocumentsPage() {
                         key={doc.document_id}
                         interactive
                         selected={selected?.document_id === doc.document_id}
-                        onClick={() => setSelected(doc)}
+                        onSelect={() => setSelected(doc)}
                       >
                         <TD>
                           <span className="flex items-center gap-2">

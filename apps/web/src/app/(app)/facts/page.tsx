@@ -220,7 +220,7 @@ function FactsView() {
                             key={fact.fact_id}
                             interactive
                             selected={selected?.fact_id === fact.fact_id}
-                            onClick={() => setSelected(fact)}
+                            onSelect={() => setSelected(fact)}
                           >
                             <TD className="font-medium">
                               {entityLabel(fact.entity_id)}

@@ -29,7 +29,13 @@ import { FileText, Hash, RefreshCw } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardBody, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardBody,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/shell/page-header";
 import { EmptyState, ErrorState, Skeleton } from "@/components/ui/states";
@@ -87,7 +93,9 @@ export default function TopicsPage() {
               "ingested."
           : "Re-extraction requested.",
       );
-      await mutate((key) => typeof key === "string" && key.startsWith("/topics"));
+      await mutate(
+        (key) => typeof key === "string" && key.startsWith("/topics"),
+      );
     } catch (cause) {
       setNotice(
         cause instanceof ApiError ? cause.detail : "Could not run extraction.",
@@ -134,7 +142,9 @@ export default function TopicsPage() {
               />
             </label>
             <label className="min-w-40">
-              <span className="mb-1 block text-xs font-medium text-ink-2">Entity</span>
+              <span className="mb-1 block text-xs font-medium text-ink-2">
+                Entity
+              </span>
               <Input
                 aria-label="Entity"
                 value={entityId}
@@ -159,16 +169,15 @@ export default function TopicsPage() {
         <ErrorState
           title="Could not load the cloud"
           detail={
-            cloud.error instanceof ApiError ? cloud.error.detail : "Request failed."
+            cloud.error instanceof ApiError
+              ? cloud.error.detail
+              : "Request failed."
           }
         />
       ) : cloud.isLoading ? (
         <Skeleton className="h-64" />
       ) : terms.length === 0 ? (
-        <EmptyState
-          icon={Hash}
-          title="No keyphrases yet"
-        >
+        <EmptyState icon={Hash} title="No keyphrases yet">
           Run extraction above to build the cloud from your corpus.
         </EmptyState>
       ) : (
@@ -198,7 +207,10 @@ export default function TopicsPage() {
                             TONES[step] +
                             (selected === term.term ? " bg-series-1/10" : "")
                           }
-                          style={{ fontSize: `${SIZES[step]}px`, lineHeight: 1.5 }}
+                          style={{
+                            fontSize: `${SIZES[step]}px`,
+                            lineHeight: 1.5,
+                          }}
                         >
                           {term.term}
                         </button>
@@ -234,7 +246,7 @@ export default function TopicsPage() {
                         key={term.term}
                         interactive
                         selected={selected === term.term}
-                        onClick={() => setSelected(term.term)}
+                        onSelect={() => setSelected(term.term)}
                       >
                         <TD>{term.term}</TD>
                         <TD className="tabular-nums">{term.document_count}</TD>
@@ -298,7 +310,9 @@ function TermPanel({
         {error ? (
           <ErrorState
             title="Could not load documents"
-            detail={error instanceof ApiError ? error.detail : "Request failed."}
+            detail={
+              error instanceof ApiError ? error.detail : "Request failed."
+            }
           />
         ) : isLoading ? (
           <Skeleton className="h-32" />
@@ -314,10 +328,15 @@ function TermPanel({
               className="block rounded-md border border-hairline px-3 py-2 transition-colors hover:bg-plane"
             >
               <span className="flex items-start gap-2">
-                <FileText className="mt-0.5 size-4 shrink-0 text-ink-3" aria-hidden />
+                <FileText
+                  className="mt-0.5 size-4 shrink-0 text-ink-3"
+                  aria-hidden
+                />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-medium text-ink">
-                    {document.title ?? document.filename ?? document.document_id}
+                    {document.title ??
+                      document.filename ??
+                      document.document_id}
                   </span>
                   <span className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-ink-3">
                     {document.fiscal_year ? (
