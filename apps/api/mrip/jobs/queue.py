@@ -250,8 +250,26 @@ class JobQueue:
         """Take up to ``limit`` claimable jobs, skipping rows another worker holds.
 
         ``SKIP LOCKED`` is what makes this safe without a broker: two workers
-        running this statement concurrently step over each other's locked rows
-        rather than blocking or double-claiming.
+        running this concurrently step over each other's locked rows rather
+        than blocking or double-claiming.
+
+        **Two statements, not one, and the limit is why.** This used to embed
+        the selection as a sublink —
+        ``UPDATE jobs ... WHERE job_id IN (SELECT ... LIMIT n FOR UPDATE SKIP LOCKED)``
+        — which reads correctly and is not. A sublink carrying a locking clause
+        is volatile, so whether the limit holds depends on whether the planner
+        materialises it once or re-evaluates it per candidate row; re-evaluated,
+        each pass locks a *different* n rows and the update walks past the
+        limit. CI caught exactly that: ``claim(limit=2)`` returned all five of
+        the caller's pending jobs, on a plan that differed from the local one
+        only in shape. A worker then holds leases on jobs it has no capacity to
+        run, and they sit claimed until the lease expires.
+
+        Selecting the ids first makes the limit arithmetic rather than a
+        planner outcome. The rows stay locked between the two statements
+        because the caller is inside a transaction (``jobs/worker.py`` wraps
+        this in ``transaction()``), so no other worker can take them in the
+        gap — and ``SKIP LOCKED`` still steps over rows somebody else holds.
         """
         claimable = (
             sa.select(jobs.c.job_id)
@@ -270,10 +288,23 @@ class JobQueue:
         if queues:
             claimable = claimable.where(jobs.c.queue.in_(queues))
 
+        locked = list(self._conn.execute(claimable).scalars().all())
+        if not locked:
+            return []
+
         rows = (
             self._conn.execute(
                 sa.update(jobs)
-                .where(jobs.c.job_id.in_(claimable.scalar_subquery()))
+                .where(
+                    jobs.c.job_id.in_(locked),
+                    # Cannot fire today: the rows above are locked by this
+                    # transaction, so nothing can move them out of `pending` in
+                    # the gap. Stated anyway, because it is the predicate that
+                    # makes this statement safe on its own — if the select is
+                    # ever moved out of the transaction, this refuses rather
+                    # than re-claiming a job somebody else is running.
+                    jobs.c.state == JobState.PENDING.value,
+                )
                 .values(
                     state=JobState.CLAIMED.value,
                     claimed_by=worker_id,

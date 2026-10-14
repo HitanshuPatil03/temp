@@ -166,6 +166,56 @@ def test_claim_is_bounded_by_limit(queue):
     assert len(queue.claim(WORKER_A, limit=10)) == 3
 
 
+def test_the_claim_limit_does_not_depend_on_the_query_planner():
+    """The limit must be arithmetic, not a plan outcome.
+
+    `claim` used to select its rows as a sublink inside the UPDATE:
+    ``WHERE job_id IN (SELECT ... LIMIT n FOR UPDATE SKIP LOCKED)``. A sublink
+    carrying a locking clause is volatile, so whether the limit holds depends on
+    whether the planner materialises it once or re-evaluates it per candidate
+    row — re-evaluated, each pass locks a different n rows and the update walks
+    straight past the limit.
+
+    CI caught it doing exactly that: `claim(limit=2)` returned all five of the
+    caller's pending jobs, on a plan whose only difference from the local one
+    was its shape. It could not be reproduced locally, and that is the point —
+    the behavioural test above passes under a good plan and says nothing at all
+    about a bad one.
+
+    So this asserts the *shape* instead. The first statement `claim` issues must
+    be a locking SELECT with the limit on it, which means the ids are counted by
+    the client before anything is written. That is the property making the limit
+    exact, and it is checkable without provoking a planner into misbehaving.
+    """
+    from sqlalchemy.dialects import postgresql
+
+    class StopError(Exception):
+        """Ends the claim after its first statement, before any write."""
+
+    emitted: list[str] = []
+
+    class Recorder:
+        """Stands in for a connection, capturing SQL instead of running it."""
+
+        def execute(self, statement, *args, **kwargs):
+            emitted.append(str(statement.compile(dialect=postgresql.dialect())))
+            raise StopError
+
+    with pytest.raises(StopError):
+        JobQueue(Recorder()).claim(WORKER_A, limit=2)  # type: ignore[arg-type]
+
+    [first] = emitted
+    assert first.lstrip().upper().startswith("SELECT"), (
+        "the claim must read its row ids before writing, or the limit is "
+        f"whatever the planner decides. First statement was: {first!r}"
+    )
+    assert "FOR UPDATE" in first, (
+        "the selection must still lock, or two workers can claim one job"
+    )
+    assert "SKIP LOCKED" in first, "a locked row must be stepped over, not waited on"
+    assert "LIMIT" in first
+
+
 # ------------------------------------------------------------------- lifecycle
 
 

@@ -202,7 +202,7 @@ report: what was refused and why.
 cd apps/api && pytest
 ```
 
-**678 tests**, against a real PostgreSQL — not a stand-in, because partial unique indexes,
+**679 tests**, against a real PostgreSQL — not a stand-in, because partial unique indexes,
 composite foreign keys and the audit log's append-only trigger are not behaviours a mock
 reproduces. Roughly seventy seconds.
 
