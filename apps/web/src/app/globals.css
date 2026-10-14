@@ -133,3 +133,34 @@ body {
   background-color: var(--color-surface);
   box-shadow: inset 0 -1px 0 var(--color-hairline);
 }
+
+/*
+ * Honour `prefers-reduced-motion`.
+ *
+ * Four things move in this interface: the skeleton placeholders pulse, the
+ * streaming-answer caret pulses, and the pending-button spinner spins. None of
+ * them carries information that the static form does not — a skeleton is a
+ * placeholder whether or not it breathes, and a disabled button with a glyph
+ * reads as busy without rotating.
+ *
+ * So for a reader who has asked the operating system for less motion, they
+ * stop. `animate-pulse` is an opacity cycle, which is a vestibular trigger at
+ * the low end and simply distracting at the high end, and this is a tool people
+ * read figures off for hours.
+ *
+ * Kept to the animations rather than a blanket `* { animation: none }`: the
+ * colour and opacity *transitions* on hover and focus are feedback about what
+ * is under the cursor, and removing those would cost more than it saves.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .animate-pulse,
+  .animate-spin {
+    animation: none;
+  }
+
+  /* A spinner that does not spin has to still read as "working", so it keeps
+     the dimmed treatment the moving version gets from its rotation. */
+  .animate-spin {
+    opacity: 0.6;
+  }
+}
