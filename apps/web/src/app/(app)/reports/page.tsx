@@ -25,7 +25,13 @@ import {
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardBody, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardBody,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/shell/page-header";
 import { EmptyState, ErrorState, Skeleton } from "@/components/ui/states";
@@ -48,12 +54,13 @@ const NEXT_STATE: Record<ReportState, ReportState | null> = {
   published: null,
 };
 
-const STATE_TONE: Record<ReportState, "neutral" | "info" | "good" | "warning"> = {
-  draft: "neutral",
-  in_review: "warning",
-  approved: "info",
-  published: "good",
-};
+const STATE_TONE: Record<ReportState, "neutral" | "info" | "good" | "warning"> =
+  {
+    draft: "neutral",
+    in_review: "warning",
+    approved: "info",
+    published: "good",
+  };
 
 const FORMATS = [
   { fmt: "docx", label: "Word", icon: FileText },
@@ -66,25 +73,37 @@ export default function ReportsPage() {
   const { mutate } = useSWRConfig();
   const [entity, setEntity] = useState("SECL");
   const [period, setPeriod] = useState("FY2024-25");
-  const [templateId, setTemplateId] = useState("production-summary");
+  // Empty, not "production-summary". The template list is the API's to own, and
+  // a hardcoded id here is a second copy of it that goes stale silently: rename
+  // the template server-side and this would post an id that no longer exists.
+  // The effective selection is derived from whatever the API returned.
+  const [templateId, setTemplateId] = useState("");
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
 
   const list = useSWR<ReportManifest[]>(keys.reports(), fetcher);
   const templates = useSWR<TemplateSummary[]>(keys.reportTemplates(), fetcher);
-  const template = (templates.data ?? []).find((item) => item.id === templateId);
+  const available = templates.data ?? [];
+  // Falls back to the first template rather than to nothing, so the select
+  // always shows the template that would actually be used. Before this the
+  // selection and the thing posted could disagree.
+  const template =
+    available.find((item) => item.id === templateId) ?? available[0];
 
   async function generate() {
+    if (!template) return;
     setGenerating(true);
     setError(null);
     try {
-      const created = await api.generateReport(entity, period, templateId);
+      const created = await api.generateReport(entity, period, template.id);
       setSelected(created.report_id);
       await mutate(keys.reports());
     } catch (cause) {
       setError(
-        cause instanceof ApiError ? cause.detail : "Could not generate the report.",
+        cause instanceof ApiError
+          ? cause.detail
+          : "Could not generate the report.",
       );
     } finally {
       setGenerating(false);
@@ -99,12 +118,17 @@ export default function ReportsPage() {
       await api.transitionReport(report.report_id, target);
       await mutate(keys.reports());
     } catch (cause) {
-      setError(cause instanceof ApiError ? cause.detail : "Could not update the state.");
+      setError(
+        cause instanceof ApiError
+          ? cause.detail
+          : "Could not update the state.",
+      );
     }
   }
 
   const reports = list.data ?? [];
-  const current = reports.find((item) => item.report_id === selected) ?? reports[0];
+  const current =
+    reports.find((item) => item.report_id === selected) ?? reports[0];
 
   return (
     <main className="min-w-0 flex-1 space-y-6 px-8 py-6">
@@ -123,16 +147,36 @@ export default function ReportsPage() {
           </CardDescription>
         </CardHeader>
         <CardBody>
+          {/* The templates define what a report must pin, so without them this
+              form cannot be completed — and an empty dropdown beside a live
+              Generate button reads as the product being broken rather than as a
+              request having failed. */}
+          {templates.error ? (
+            <div className="mb-3">
+              <ErrorState
+                title="Cannot read the report templates"
+                detail={
+                  templates.error instanceof ApiError
+                    ? templates.error.detail
+                    : "The API is not reachable, so there is nothing to generate against."
+                }
+              />
+            </div>
+          ) : null}
+
           <div className="flex flex-wrap items-end gap-3">
             <label className="min-w-52 flex-1">
-              <span className="mb-1 block text-xs font-medium text-ink-2">Template</span>
+              <span className="mb-1 block text-xs font-medium text-ink-2">
+                Template
+              </span>
               <select
                 aria-label="Template"
-                value={templateId}
+                value={template?.id ?? ""}
                 onChange={(event) => setTemplateId(event.target.value)}
+                disabled={available.length === 0}
                 className="h-9 w-full rounded-md border border-hairline bg-surface px-2.5 text-sm text-ink outline-none focus:border-blue-550"
               >
-                {(templates.data ?? []).map((item) => (
+                {available.map((item) => (
                   <option key={item.id} value={item.id}>
                     {humanize(item.id)} (v{item.version})
                   </option>
@@ -140,7 +184,9 @@ export default function ReportsPage() {
               </select>
             </label>
             <label className="min-w-40 flex-1">
-              <span className="mb-1 block text-xs font-medium text-ink-2">Entity</span>
+              <span className="mb-1 block text-xs font-medium text-ink-2">
+                Entity
+              </span>
               <Input
                 aria-label="Entity"
                 value={entity}
@@ -149,7 +195,9 @@ export default function ReportsPage() {
               />
             </label>
             <label className="min-w-40 flex-1">
-              <span className="mb-1 block text-xs font-medium text-ink-2">Period</span>
+              <span className="mb-1 block text-xs font-medium text-ink-2">
+                Period
+              </span>
               <Input
                 aria-label="Period"
                 value={period}
@@ -157,7 +205,11 @@ export default function ReportsPage() {
                 placeholder="FY2024-25"
               />
             </label>
-            <Button onClick={generate} pending={generating} disabled={generating}>
+            <Button
+              onClick={generate}
+              pending={generating}
+              disabled={generating || !template}
+            >
               Generate report
             </Button>
           </div>
@@ -194,16 +246,15 @@ export default function ReportsPage() {
         <ErrorState
           title="Could not load reports"
           detail={
-            list.error instanceof ApiError ? list.error.detail : "Request failed."
+            list.error instanceof ApiError
+              ? list.error.detail
+              : "Request failed."
           }
         />
       ) : list.isLoading ? (
         <Skeleton className="h-40" />
       ) : reports.length === 0 ? (
-        <EmptyState
-          icon={FileText}
-          title="No reports yet"
-        >
+        <EmptyState icon={FileText} title="No reports yet">
           Generate one above. It will be stored with its evidence pinned.
         </EmptyState>
       ) : (
@@ -246,7 +297,9 @@ export default function ReportsPage() {
             </CardBody>
           </Card>
 
-          {current ? <ReportDetail report={current} onAdvance={advance} /> : null}
+          {current ? (
+            <ReportDetail report={current} onAdvance={advance} />
+          ) : null}
         </div>
       )}
     </main>
@@ -275,7 +328,9 @@ function ReportDetail({
         </CardHeader>
         <CardBody className="space-y-4">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge tone={STATE_TONE[report.state]}>{humanize(report.state)}</Badge>
+            <Badge tone={STATE_TONE[report.state]}>
+              {humanize(report.state)}
+            </Badge>
             {next ? (
               <Button variant="outline" onClick={() => onAdvance(report)}>
                 Move to {humanize(next)}
@@ -344,7 +399,9 @@ function ReportDetail({
                       {figure.raw_value} {figure.raw_unit}
                     </TD>
                     <TD>
-                      <code className="text-xs text-ink-2">{figure.locator}</code>
+                      <code className="text-xs text-ink-2">
+                        {figure.locator}
+                      </code>
                     </TD>
                   </TR>
                 ))}
@@ -354,12 +411,14 @@ function ReportDetail({
         </CardBody>
       </Card>
 
-      {report.missing_required.length > 0 || report.missing_optional.length > 0 ? (
+      {report.missing_required.length > 0 ||
+      report.missing_optional.length > 0 ? (
         <Card>
           <CardHeader>
             <CardTitle>Not pinned</CardTitle>
             <CardDescription>
-              Required fields block the render; optional ones are simply omitted.
+              Required fields block the render; optional ones are simply
+              omitted.
             </CardDescription>
           </CardHeader>
           <CardBody className="p-0">
@@ -432,7 +491,9 @@ function DiffPanel({ reportId }: { reportId: string }) {
         ) : error ? (
           <ErrorState
             title="Could not compute the diff"
-            detail={error instanceof ApiError ? error.detail : "Request failed."}
+            detail={
+              error instanceof ApiError ? error.detail : "Request failed."
+            }
           />
         ) : isLoading ? (
           <Skeleton className="h-20" />

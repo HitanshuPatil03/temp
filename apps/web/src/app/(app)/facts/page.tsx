@@ -99,6 +99,11 @@ function FactsView() {
     [facts.data, status],
   );
 
+  // `summary.error` is deliberately not surfaced. This value only draws the
+  // threshold tick on each confidence meter, and `Meter` omits the tick when it
+  // is undefined — so a failed summary costs a reviewer the line showing *why* a
+  // fact is in the queue, not the queue itself. Blocking the page on it would
+  // trade a degraded screen for no screen.
   const reviewThreshold = summary.data?.thresholds.review_confidence;
 
   return (

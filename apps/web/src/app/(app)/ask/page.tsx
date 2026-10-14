@@ -655,6 +655,12 @@ export default function AskPage() {
               </div>
             </form>
 
+            {/* `suggestions.error` is not surfaced, and does not need to be: the
+                fallback below is a real one. Corpus-derived suggestions are a
+                convenience — they name questions this corpus can actually
+                answer — and when the endpoint is unreachable the static
+                examples still demonstrate the query grammar. An error banner
+                over a working prompt box would be noise. */}
             <div className="mt-4 flex flex-wrap gap-1.5">
               {(suggestions.data && suggestions.data.length > 0
                 ? suggestions.data.map((item) => ({

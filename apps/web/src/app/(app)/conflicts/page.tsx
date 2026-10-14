@@ -20,9 +20,20 @@ import { ConflictCard } from "@/components/conflicts/conflict-card";
 import { PageHeader } from "@/components/shell/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardBody, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardBody,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Field, Input } from "@/components/ui/input";
-import { EmptyState, ErrorState, Refetching, Skeleton } from "@/components/ui/states";
+import {
+  EmptyState,
+  ErrorState,
+  Refetching,
+  Skeleton,
+} from "@/components/ui/states";
 import { ApiError, api, fetcher, keys } from "@/lib/api";
 import { formatPercent } from "@/lib/format";
 import type { ConflictGroup, DashboardSummary } from "@/lib/types";
@@ -32,6 +43,10 @@ export default function ConflictsPage() {
   const summary = useSWR<DashboardSummary>(keys.summary(), fetcher);
   const conflicts = useSWR<ConflictGroup[]>(keys.conflicts(), fetcher);
 
+  // As on the facts page, `summary.error` is not surfaced on purpose: these two
+  // thresholds annotate the conflicts rather than producing them. A reviewer can
+  // still adjudicate without knowing the configured spread; they cannot
+  // adjudicate without the conflict list, and that hook does report its error.
   const shipped = summary.data?.thresholds.conflict_material_spread;
   const [spread, setSpread] = useState<string>("");
   const [detecting, setDetecting] = useState(false);
@@ -91,8 +106,8 @@ export default function ConflictsPage() {
                 (entity, metric, unit, period)
               </code>{" "}
               key. A group is only raised when the relative spread exceeds the
-              materiality threshold, so identical figures and rounding noise do not
-              fill the queue.
+              materiality threshold, so identical figures and rounding noise do
+              not fill the queue.
             </CardDescription>
           </CardHeader>
           <CardBody>
@@ -153,14 +168,17 @@ export default function ConflictsPage() {
           ) : open.length === 0 ? (
             <EmptyState icon={ShieldCheck} title="No open conflicts">
               Nothing is awaiting adjudication. Either no two sources disagree
-              materially, or detection has not been run over this corpus — use the
-              control above.
+              materially, or detection has not been run over this corpus — use
+              the control above.
             </EmptyState>
           ) : (
             <Refetching active={conflicts.isValidating}>
               <div className="space-y-3">
                 <p className="flex items-center gap-2 text-xs text-ink-2">
-                  <GitCompareArrows className="size-3.5 text-serious" aria-hidden />
+                  <GitCompareArrows
+                    className="size-3.5 text-serious"
+                    aria-hidden
+                  />
                   {open.length} group{open.length === 1 ? "" : "s"} awaiting a
                   decision
                   {effectiveSpread !== undefined ? (
