@@ -79,6 +79,10 @@ export default function ReportsPage() {
   // The effective selection is derived from whatever the API returned.
   const [templateId, setTemplateId] = useState("");
   const [generating, setGenerating] = useState(false);
+  // Keyed by report id rather than a bare boolean: the selection can change
+  // while a transition is in flight, and a spinner on the wrong report is a
+  // worse lie than no spinner.
+  const [advancing, setAdvancing] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
 
@@ -112,7 +116,8 @@ export default function ReportsPage() {
 
   async function advance(report: ReportManifest) {
     const target = NEXT_STATE[report.state];
-    if (!target) return;
+    if (!target || advancing) return;
+    setAdvancing(report.report_id);
     setError(null);
     try {
       await api.transitionReport(report.report_id, target);
@@ -123,6 +128,8 @@ export default function ReportsPage() {
           ? cause.detail
           : "Could not update the state.",
       );
+    } finally {
+      setAdvancing(null);
     }
   }
 
@@ -298,7 +305,11 @@ export default function ReportsPage() {
           </Card>
 
           {current ? (
-            <ReportDetail report={current} onAdvance={advance} />
+            <ReportDetail
+              report={current}
+              onAdvance={advance}
+              advancing={advancing === current.report_id}
+            />
           ) : null}
         </div>
       )}
@@ -309,9 +320,11 @@ export default function ReportsPage() {
 function ReportDetail({
   report,
   onAdvance,
+  advancing,
 }: {
   report: ReportManifest;
   onAdvance: (report: ReportManifest) => void;
+  advancing: boolean;
 }) {
   const complete = report.missing_required.length === 0;
   const next = NEXT_STATE[report.state];
@@ -332,7 +345,12 @@ function ReportDetail({
               {humanize(report.state)}
             </Badge>
             {next ? (
-              <Button variant="outline" onClick={() => onAdvance(report)}>
+              <Button
+                variant="outline"
+                onClick={() => onAdvance(report)}
+                pending={advancing}
+                disabled={advancing}
+              >
                 Move to {humanize(next)}
               </Button>
             ) : (
