@@ -117,7 +117,8 @@ export const fetcher = <T>(key: string): Promise<T> =>
 export const keys = {
   health: () => "/health",
   summary: () => "/dashboard/summary",
-  documents: () => "/documents",
+  documents: (query?: Query) =>
+    withQuery("/documents", query).replace(/^\/api/, ""),
   document: (id: string) => `/documents/${id}`,
   pageEvidence: (id: string, page: number) =>
     `/documents/${id}/pages/${page}/evidence`,
@@ -141,7 +142,8 @@ export const keys = {
     ),
   entity: (q: string) =>
     withQuery("/normalize/entity", { q }).replace(/^\/api/, ""),
-  reports: (query?: Query) => withQuery("/reports", query).replace(/^\/api/, ""),
+  reports: (query?: Query) =>
+    withQuery("/reports", query).replace(/^\/api/, ""),
   reportTemplates: () => "/reports/templates",
   report: (id: string) => `/reports/${id}`,
   reportDiff: (id: string) => `/reports/${id}/diff`,
@@ -156,7 +158,8 @@ export const keys = {
     `/topics/${encodeURIComponent(term)}/prevalence`,
   querySuggestions: () => "/query/suggestions",
   users: () => "/auth/users",
-  audit: (query?: Query) => withQuery("/auth/audit", query).replace(/^\/api/, ""),
+  audit: (query?: Query) =>
+    withQuery("/auth/audit", query).replace(/^\/api/, ""),
   pipelineHealth: () => "/health/pipeline",
   documentProgress: (id: string) => `/documents/${id}/progress`,
 };
@@ -164,7 +167,8 @@ export const keys = {
 export const api = {
   health: () => request<Health>("/health"),
   summary: () => request<DashboardSummary>("/dashboard/summary"),
-  documents: () => request<MripDocument[]>("/documents"),
+  documents: (query?: Query) =>
+    request<MripDocument[]>("/documents", { query }),
   pageEvidence: (id: string, page: number) =>
     request<EvidenceSpan[]>(`/documents/${id}/pages/${page}/evidence`),
   facts: (query?: Query) => request<Fact[]>("/facts", { query }),
@@ -207,7 +211,10 @@ export const api = {
       `/conflicts/${conflictId}/resolve`,
       {
         method: "POST",
-        body: JSON.stringify({ winning_fact_id: winningFactId, note: note || null }),
+        body: JSON.stringify({
+          winning_fact_id: winningFactId,
+          note: note || null,
+        }),
       },
     ),
 
@@ -336,10 +343,14 @@ export const api = {
 // POST /api/query/stream is narrative/draft with SSE: meta -> token* -> done.
 // api.ask is the unified entry the Ask page uses: streaming prose, json fallback.
 
+import type { ScopedMutator } from "swr";
 import type { Passage, QueryResponse } from "./types";
 
 export type StreamEvent =
-  | { event: "meta"; data: { intent: string; facts: Fact[]; passages: Passage[] } }
+  | {
+      event: "meta";
+      data: { intent: string; facts: Fact[]; passages: Passage[] };
+    }
   | { event: "token"; data: { t: string } }
   | { event: "done"; data: { prose: string; flagged: boolean } }
   | { event: "error"; data: { reason: string; message: string } };
@@ -351,7 +362,9 @@ export async function query(question: string): Promise<QueryResponse> {
   });
 }
 
-export async function* queryStream(question: string): AsyncGenerator<StreamEvent> {
+export async function* queryStream(
+  question: string,
+): AsyncGenerator<StreamEvent> {
   const res = await fetch("/api/query/stream", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -365,7 +378,10 @@ export async function* queryStream(question: string): AsyncGenerator<StreamEvent
   if (ctype.includes("application/json")) {
     const body: unknown = await res.json();
     if (!res.ok) throw new ApiError(res.status, readDetail(body, res.status));
-    yield { event: "meta", data: body as unknown as StreamEvent["data"] } as StreamEvent;
+    yield {
+      event: "meta",
+      data: body as unknown as StreamEvent["data"],
+    } as StreamEvent;
     yield { event: "done", data: { prose: "", flagged: false } } as StreamEvent;
     return;
   }
@@ -400,7 +416,9 @@ export async function* queryStream(question: string): AsyncGenerator<StreamEvent
       if (!eventLine || !dataLine) continue;
       const event = eventLine.slice(6).trim() as StreamEvent["event"];
       try {
-        const data = JSON.parse(dataLine.slice(5).trim()) as StreamEvent["data"];
+        const data = JSON.parse(
+          dataLine.slice(5).trim(),
+        ) as StreamEvent["data"];
         yield { event, data } as StreamEvent;
       } catch {
         /* malformed frame — skip */
@@ -420,4 +438,19 @@ export async function ask(
   const useStream = opts?.stream ?? true;
   if (!useStream) return { kind: "json", data: await query(question) };
   return { kind: "stream", events: queryStream(question) };
+}
+
+/**
+ * Invalidate every page of the document list.
+ *
+ * The list is keyed by its `limit` and `offset`, so the bare `keys.documents()`
+ * no longer matches what any page actually fetched — an upload would have
+ * refreshed nothing. A predicate matches every variant, which is also what you
+ * want here regardless of paging: a new document changes the *order*, so page 2
+ * is stale even though the upload landed on page 1.
+ */
+export function invalidateDocuments(mutate: ScopedMutator): Promise<unknown> {
+  return mutate(
+    (key) => typeof key === "string" && key.startsWith(keys.documents()),
+  );
 }

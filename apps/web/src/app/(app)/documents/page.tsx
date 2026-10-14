@@ -41,10 +41,11 @@ import {
   Refetching,
   Skeleton,
 } from "@/components/ui/states";
-import { api, ApiError, fetcher, keys } from "@/lib/api";
+import { api, ApiError, fetcher, invalidateDocuments, keys } from "@/lib/api";
 import { formatBytes, formatDate, formatNumber, humanize } from "@/lib/format";
 import { INGEST_STAGES, latestStageProgress } from "@/lib/types";
 import type {
+  DashboardSummary,
   DocumentProgress,
   EvidenceSpan,
   IngestStage,
@@ -79,17 +80,41 @@ const IN_FLIGHT = new Set<string>([
   "indexed",
 ]);
 
+/** Rows per page. The API caps `limit` at 500; this is what fits a screen
+ *  without the sticky header being the only thing keeping the table readable. */
+const PAGE_SIZE = 50;
+
 export default function DocumentsPage() {
-  const documents = useSWR<MripDocument[]>(keys.documents(), fetcher, {
-    // Poll only while something is actually moving. A 400-page scan takes
-    // minutes, and an officer watching a static "digitized" badge cannot tell
-    // working from stuck — which is when they re-upload. Once every document is
-    // terminal there is nothing to see, so the polling stops rather than asking
-    // a question whose answer cannot change.
-    refreshInterval: (latest) =>
-      latest?.some((doc) => IN_FLIGHT.has(doc.state)) ? 3000 : 0,
-  });
+  const [offset, setOffset] = useState(0);
+  // The scoped document count, which the dashboard summary already computes.
+  // Without it this page could only say "here are some documents" — the list
+  // was fetched with no `limit`, so the API's default of 100 silently truncated
+  // a 3,404-document corpus and nothing said so. An officer looking for a
+  // filing from last month simply could not find it, with no indication why.
+  const summary = useSWR<DashboardSummary>(keys.summary(), fetcher);
+  const total = summary.data?.counts.documents;
+
+  const documents = useSWR<MripDocument[]>(
+    keys.documents({ limit: PAGE_SIZE, offset }),
+    fetcher,
+    {
+      // Poll only while something is actually moving. A 400-page scan takes
+      // minutes, and an officer watching a static "digitized" badge cannot tell
+      // working from stuck — which is when they re-upload. Once every document is
+      // terminal there is nothing to see, so the polling stops rather than asking
+      // a question whose answer cannot change.
+      refreshInterval: (latest) =>
+        latest?.some((doc) => IN_FLIGHT.has(doc.state)) ? 3000 : 0,
+    },
+  );
   const [selected, setSelected] = useState<MripDocument | null>(null);
+
+  const shown = documents.data?.length ?? 0;
+  // `total` can be undefined while the summary loads, or if it fails — which it
+  // is allowed to do without taking the list with it. A full page is then the
+  // only evidence that more may exist, which is enough to keep Next enabled.
+  const hasMore =
+    total === undefined ? shown === PAGE_SIZE : offset + shown < total;
 
   return (
     <>
@@ -214,6 +239,41 @@ export default function DocumentsPage() {
                 </Table>
               </Refetching>
             )}
+
+            {shown > 0 ? (
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-hairline pt-3">
+                <p className="tnum text-xs text-ink-3">
+                  {total === undefined ? (
+                    <>
+                      Showing {formatNumber(offset + 1, 0)}–
+                      {formatNumber(offset + shown, 0)}
+                    </>
+                  ) : (
+                    <>
+                      Showing {formatNumber(offset + 1, 0)}–
+                      {formatNumber(offset + shown, 0)} of{" "}
+                      {formatNumber(total, 0)}
+                    </>
+                  )}
+                </p>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
+                    disabled={offset === 0 || documents.isValidating}
+                  >
+                    Previous
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => setOffset(offset + PAGE_SIZE)}
+                    disabled={!hasMore || documents.isValidating}
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
+            ) : null}
           </CardBody>
         </Card>
 
@@ -287,7 +347,7 @@ function FailurePanel({ doc }: { doc: MripDocument }) {
     try {
       const outcome = await api.retryDocument(doc.document_id, stage);
       setQueued({ stage: outcome.stage, job_id: outcome.job_id });
-      await mutate(keys.documents());
+      await invalidateDocuments(mutate);
       await mutate(keys.summary());
     } catch (caught) {
       setError(

@@ -29,9 +29,15 @@ import { AlertTriangle, CheckCircle2, Info, Upload } from "lucide-react";
 import useSWR, { useSWRConfig } from "swr";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardBody, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardBody,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Field, Input, Select } from "@/components/ui/input";
-import { fetcher, keys } from "@/lib/api";
+import { fetcher, invalidateDocuments, keys } from "@/lib/api";
 import type { MripDocument } from "@/lib/types";
 
 interface Accepted {
@@ -105,7 +111,7 @@ export function UploadPanel() {
       setAccepted(body as Accepted);
       element.reset();
       // The registry and the dashboard counters both changed.
-      await mutate(keys.documents());
+      await invalidateDocuments(mutate);
       await mutate(keys.summary());
     } catch {
       setRefused({
@@ -123,10 +129,10 @@ export function UploadPanel() {
       <CardHeader>
         <CardTitle>Add a document</CardTitle>
         <CardDescription>
-          PDF, Excel, Word or an image of a page. The file is checked before it is
-          stored — encrypted PDFs, archives that expand beyond their stated size and
-          active content are refused or stripped, and identical bytes are never
-          ingested twice.
+          PDF, Excel, Word or an image of a page. The file is checked before it
+          is stored — encrypted PDFs, archives that expand beyond their stated
+          size and active content are refused or stripped, and identical bytes
+          are never ingested twice.
         </CardDescription>
       </CardHeader>
       <CardBody>
@@ -219,7 +225,10 @@ export function UploadPanel() {
         {accepted ? (
           <div className="mt-4 flex gap-2 rounded-md border border-good/30 bg-good/5 px-3 py-2.5">
             {accepted.created ? (
-              <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-good" aria-hidden />
+              <CheckCircle2
+                className="mt-0.5 size-4 shrink-0 text-good"
+                aria-hidden
+              />
             ) : (
               <Info className="mt-0.5 size-4 shrink-0 text-ink-2" aria-hidden />
             )}
@@ -231,7 +240,9 @@ export function UploadPanel() {
               </p>
               <p className="mt-0.5">
                 {accepted.doc_class.replaceAll("_", " ")}
-                {accepted.page_count ? `, ${accepted.page_count} pages` : ""} ·{" "}
+                {accepted.page_count
+                  ? `, ${accepted.page_count} pages`
+                  : ""} ·{" "}
                 <span className="font-mono">{accepted.document_id}</span> ·{" "}
                 {accepted.state}
               </p>
